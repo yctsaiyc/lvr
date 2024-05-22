@@ -1,0 +1,14 @@
+{
+    "schemas": [
+        {
+            "schema_name": "main",
+            "files": [
+                {
+                    "name": "不動產買賣",
+                    "pattern":  "[a-z]_lvr_land_a.csv"
+                }
+            ],
+            "add_cols": ["季度", "縣市"]
+        }
+    ]
+}

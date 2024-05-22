@@ -2,21 +2,24 @@ from datetime import date
 import requests
 import zipfile
 import os
+import json
+import pandas as pd
+import glob
 
 
 today = date.today()
 
 if today.month in [1, 2, 3]:
-    newest_season = f"{today.year - 1912}S4"
+    NEWEST_SEASON = f"{today.year - 1912}S4"
 elif today.month in [4, 5, 6]:
-    newest_season = f"{today.year - 1911}S1"
+    NEWEST_SEASON = f"{today.year - 1911}S1"
 elif today.month in [7, 8, 9]:
-    newest_season = f"{today.year - 1911}S2"
+    NEWEST_SEASON = f"{today.year - 1911}S2"
 else:  # today.month in [10, 11, 12]
-    newest_season = f"{today.year - 1911}S3"
+    NEWEST_SEASON = f"{today.year - 1911}S3"
 
 
-def save_season_data(season=newest_season):
+def save_season_data(season=NEWEST_SEASON):
     url = f"https://plvr.land.moi.gov.tw//DownloadSeason?season={season}&type=zip&fileName=lvr_landcsv.zip"
     print("url:", url)
 
@@ -41,7 +44,7 @@ def save_season_data(season=newest_season):
         print("Failed to download the file. Status code:", response.status_code)
 
 
-def save_history_season_data(start="101S1", end=newest_season):
+def save_history_season_data(start="101S1", end=NEWEST_SEASON):
     while int(start[-1]) <= 4:
         # save_season_data(start)
         print(start)
@@ -54,3 +57,27 @@ def save_history_season_data(start="101S1", end=newest_season):
                 break
             # save_season_data(f"{year}S{season}")
             print(f"{year}S{season}")
+
+
+def merge_csv(data_dir_path, schema):
+    files = []
+    for schema_file in schema["files"]:
+        files += glob.glob(os.path.join(data_dir_path, schema_file["pattern"]))
+    print("Files:")
+    for file in files:
+        print("", file)
+
+
+if __name__ == "__main__":
+    with open("config.json", "r") as f:
+        config = json.load(f)
+
+    data_dir_paths = glob.glob("lvr_landcsv_???S?")
+    # data_dir_paths = ["lvr_landcsv_113S1"]
+
+    for data_dir_path in data_dir_paths:
+        season = data_dir_path[-5:]
+        print("Season:", season)
+        for schema in config["schemas"]:
+            print("Schema:", schema["schema_name"])
+            merge_csv(data_dir_path, schema)
