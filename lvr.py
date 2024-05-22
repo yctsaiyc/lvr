@@ -5,6 +5,7 @@ import os
 import json
 import pandas as pd
 import glob
+import csv
 
 
 today = date.today()
@@ -60,12 +61,64 @@ def save_history_season_data(start="101S1", end=NEWEST_SEASON):
 
 
 def merge_csv(data_dir_path, schema):
-    files = []
+    data_file_paths = []
     for schema_file in schema["files"]:
-        files += glob.glob(os.path.join(data_dir_path, schema_file["pattern"]))
-    print("Files:")
-    for file in files:
-        print("", file)
+        data_file_paths += glob.glob(
+            os.path.join(data_dir_path, schema_file["pattern"])
+        )
+
+    season = data_dir_path[-5:]
+    merge_file_path = f"lvr_land_{season}_{schema['schema_name']}.csv"
+    print(f"Merge {merge_file_path}...")
+
+    # Check if the merge file already exists and is non-empty
+    merge_file_exists = (
+        os.path.isfile(merge_file_path) and os.path.getsize(merge_file_path) > 0
+    )
+
+    with open(merge_file_path, "a", newline="") as merge_file:
+        csv_writer = csv.writer(merge_file)
+
+        for path in data_file_paths:
+            print("", path)
+            new_cols_dict = {}
+
+            if "season" in schema["new_cols"]:
+                new_cols_dict["season"] = season
+
+            if "city" in schema["new_cols"]:
+                new_cols_dict["city"] = path.split("/")[-1][0]
+
+            with open(path, "r", newline="") as current_file:
+                csv_reader = csv.reader(current_file)
+
+                # Skip header lines if the merge file already exists
+                if merge_file_exists:
+                    next(csv_reader)
+                    next(csv_reader)
+
+                else:
+                    header1 = next(csv_reader)
+                    header2 = next(csv_reader)
+
+                    header1.extend(new_cols_dict.keys())
+                    header2.extend(new_cols_dict.keys())
+
+                    # Write the first two header lines to the merge file
+                    csv_writer.writerow(header1)
+                    csv_writer.writerow(header2)
+
+                    # After writing the first header, mark as existing
+                    file_exists = True
+
+                for row in csv_reader:
+                    if new_cols_dict:
+                        for new_col_value in new_cols_dict.values():
+                            row.append(new_col_value)
+
+                    csv_writer.writerow(row)
+
+        print("Merge done!\n")
 
 
 if __name__ == "__main__":
@@ -79,5 +132,4 @@ if __name__ == "__main__":
         season = data_dir_path[-5:]
         print("Season:", season)
         for schema in config["schemas"]:
-            print("Schema:", schema["schema_name"])
             merge_csv(data_dir_path, schema)
