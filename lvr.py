@@ -89,6 +89,9 @@ def merge_csv(data_dir_path, schema):
             if "city" in schema["new_cols"]:
                 new_cols_dict["city"] = path.split("/")[-1][0]
 
+            if "category" in schema["new_cols"]:
+                new_cols_dict["category"] = path.split("_")[-2]
+
             with open(path, "r", newline="") as current_file:
                 csv_reader = csv.reader(current_file)
 
@@ -106,10 +109,10 @@ def merge_csv(data_dir_path, schema):
 
                     # Write the first two header lines to the merge file
                     csv_writer.writerow(header1)
-                    csv_writer.writerow(header2)
+                    # csv_writer.writerow(header2)
 
                     # After writing the first header, mark as existing
-                    file_exists = True
+                    merge_file_exists = True
 
                 for row in csv_reader:
                     if new_cols_dict:
@@ -130,6 +133,6 @@ if __name__ == "__main__":
 
     for data_dir_path in data_dir_paths:
         season = data_dir_path[-5:]
-        print("Season:", season)
+        print(f"Season: {season}\n")
         for schema in config["schemas"]:
             merge_csv(data_dir_path, schema)

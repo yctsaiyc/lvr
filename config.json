@@ -5,10 +5,46 @@
             "files": [
                 {
                     "name": "不動產買賣",
-                    "pattern":  "[a-z]_lvr_land_a.csv"
+                    "pattern": "[a-z]_lvr_land_a.csv"
                 }
             ],
             "new_cols": ["season", "city"]
+        },
+        {
+            "schema_name": "land",
+            "files": [
+                {
+                    "name": "土地不動產買賣",
+                    "pattern": "[a-z]_lvr_land_a_land.csv"
+                },
+                {
+                    "name": "土地預售屋買賣",
+                    "pattern": "[a-z]_lvr_land_b_land.csv"
+                },
+                {
+                    "name": "土地不動產租賃",
+                    "pattern": "[a-z]_lvr_land_c_land.csv"
+                }
+            ],
+            "new_cols": ["season", "city", "category"]
+        },
+        {
+            "schema_name": "park",
+            "files": [
+                {
+                    "name": "停車場不動產買賣",
+                    "pattern": "[a-z]_lvr_land_a_park.csv"
+                },
+                {
+                    "name": "停車場預售屋買賣",
+                    "pattern": "[a-z]_lvr_land_b_park.csv"
+                },
+                {
+                    "name": "停車場不動產租賃",
+                    "pattern": "[a-z]_lvr_land_c_park.csv"
+                }
+            ],
+            "new_cols": ["season", "city", "category"]
         }
     ]
 }
