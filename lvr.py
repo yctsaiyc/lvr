@@ -8,6 +8,9 @@ import glob
 import csv
 
 
+with open("config.json", "r") as f:
+    config = json.load(f)
+
 today = date.today()
 
 if today.month in [1, 2, 3]:
@@ -20,8 +23,8 @@ else:  # today.month in [10, 11, 12]
     NEWEST_SEASON = f"{today.year - 1911}S3"
 
 
-def save_season_data(season=NEWEST_SEASON):
-    url = f"https://plvr.land.moi.gov.tw//DownloadSeason?season={season}&type=zip&fileName=lvr_landcsv.zip"
+def save_season_raw_data(season=NEWEST_SEASON):
+    url = config["url"] + season
     print("url:", url)
 
     response = requests.get(url)
@@ -45,9 +48,9 @@ def save_season_data(season=NEWEST_SEASON):
         print("Failed to download the file. Status code:", response.status_code)
 
 
-def save_history_season_data(start="101S1", end=NEWEST_SEASON):
+def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
     while int(start[-1]) <= 4:
-        # save_season_data(start)
+        save_season_raw_data(start)
         print(start)
         start = start[:-1] + str(int(start[-1]) + 1)
     start = str(int(start[:3]) + 1) + "S1"
@@ -56,47 +59,67 @@ def save_history_season_data(start="101S1", end=NEWEST_SEASON):
         for season in range(1, 5):
             if f"{year}S{season}" > end:
                 break
-            # save_season_data(f"{year}S{season}")
+            save_season_raw_data(f"{year}S{season}")
             print(f"{year}S{season}")
 
 
-def merge_csv(data_dir_path, schema):
-    data_file_paths = []
-    for schema_file in schema["files"]:
-        data_file_paths += glob.glob(
-            os.path.join(data_dir_path, schema_file["pattern"])
+def merge_csv(schema="main", raw_dir_path="lvr_landcsv_101S1", dest_dir_path="."):
+    schema_dict = config["schemas"][schema]
+
+    raw_file_paths = []
+    for schema_file in schema_dict["files"]:
+        raw_file_paths += glob.glob(
+            os.path.join(raw_dir_path, schema_file["pattern"])
         )
 
-    season = data_dir_path[-5:]
-    merge_file_path = f"lvr_land_{season}_{schema['schema_name']}.csv"
-    print(f"Merge {merge_file_path}...")
+    season = raw_dir_path[-5:]  # yyySs
+    merged_file_path = f"{dest_dir_path}/lvr_land_{season}_{schema}.csv"
+    print(f"Merge {merged_file_path}...")
 
     # Check if the merge file already exists and is non-empty
-    merge_file_exists = (
-        os.path.isfile(merge_file_path) and os.path.getsize(merge_file_path) > 0
+    merged_file_exists = (
+        os.path.isfile(merged_file_path) and os.path.getsize(merged_file_path) > 0
     )
 
-    with open(merge_file_path, "a", newline="") as merge_file:
-        csv_writer = csv.writer(merge_file)
+    # If the merge file already exists, ask the user if they want to overwrite it
+    if merged_file_exists:
+        action = input(f"Merge file already exists. Overwrite it? (y/n): ").lower()
 
-        for path in data_file_paths:
+        if action == "y" or "yes":
+            os.remove(merged_file_path)
+            merged_file_exists = False
+
+        elif action == "n" or "no":
+            return
+
+        else:
+            print("Invalid action.")
+            return
+
+    # Create the merge file
+    with open(merged_file_path, "a", newline="") as merged_file:
+        csv_writer = csv.writer(merged_file)
+
+        for path in raw_file_paths:
             print("", path)
+
             new_cols_dict = {}
 
-            if "season" in schema["new_cols"]:
+            if "season" in schema_dict["new_cols"]:
                 new_cols_dict["season"] = season
 
-            if "city" in schema["new_cols"]:
+            if "city" in schema_dict["new_cols"]:
                 new_cols_dict["city"] = path.split("/")[-1][0]
 
-            if "category" in schema["new_cols"]:
+            if "category" in schema_dict["new_cols"]:
                 new_cols_dict["category"] = path.split("_")[-2]
 
+            # Read the CSV file
             with open(path, "r", newline="") as current_file:
                 csv_reader = csv.reader(current_file)
 
                 # Skip header lines if the merge file already exists
-                if merge_file_exists:
+                if merged_file_exists:
                     next(csv_reader)
                     next(csv_reader)
 
@@ -107,12 +130,12 @@ def merge_csv(data_dir_path, schema):
                     header1.extend(new_cols_dict.keys())
                     header2.extend(new_cols_dict.keys())
 
-                    # Write the first two header lines to the merge file
+                    # Write the header lines to the merge file
                     csv_writer.writerow(header1)
                     # csv_writer.writerow(header2)
 
                     # After writing the first header, mark as existing
-                    merge_file_exists = True
+                    merged_file_exists = True
 
                 for row in csv_reader:
                     if new_cols_dict:
@@ -124,15 +147,46 @@ def merge_csv(data_dir_path, schema):
         print("Merge done!\n")
 
 
-if __name__ == "__main__":
-    with open("config.json", "r") as f:
-        config = json.load(f)
+def merge_csv_all_schemas(raw_dir_path="lvr_landcsv_???S?"):
+    raw_dir_paths = glob.glob(raw_dir_path)
 
-    data_dir_paths = glob.glob("lvr_landcsv_???S?")
-    # data_dir_paths = ["lvr_landcsv_113S1"]
-
-    for data_dir_path in data_dir_paths:
-        season = data_dir_path[-5:]
+    for raw_dir_path in raw_dir_paths:
+        season = raw_dir_path[-5:]
         print(f"Season: {season}\n")
         for schema in config["schemas"]:
-            merge_csv(data_dir_path, schema)
+            merged_csv(raw_dir_path, schema)
+
+
+def process_date(file_path="lvr_land_???S?_*.csv"):
+    file_paths = glob.glob(file_path)
+
+    for file in file_paths:
+        print(f"Processing date in {file}...")
+        schema = file.split(".")[0].split("_")[-1]
+        schema_dict = config["schemas"][schema]
+
+        # Read the CSV file
+        with open(file, "r", newline="") as csvfile:
+            reader = csv.DictReader(csvfile)
+            rows = list(reader)
+            fieldnames = reader.fieldnames  # Get the column names
+
+        # Modify the specified columns
+        for idx, row in enumerate(rows):
+            for col in schema_dict["date_cols"]:
+                if col in row and row[col] != "":
+                    try:
+                        day = row[col][-2:]
+                        month = row[col][-4:-2]
+                        year = int(row[col][:-4]) + 1911
+                        row[col] = f"{year}-{month}-{day}"
+                    except Exception as e:
+                        print(f"Error processing row {idx + 2} in column {col}: {row[col]}")
+
+        # Write the modified data back to the CSV file
+        with open(file, "w", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    print("Done!")
