@@ -23,7 +23,7 @@ else:  # today.month in [10, 11, 12]
     NEWEST_SEASON = f"{today.year - 1911}S3"
 
 
-def save_season_raw_data(season=NEWEST_SEASON):
+def save_season_raw_data(raw_dir_parent_path="data/raw", season=NEWEST_SEASON):
     url = config["url"] + season
     print("url:", url)
 
@@ -31,26 +31,26 @@ def save_season_raw_data(season=NEWEST_SEASON):
 
     if response.status_code == 200:
         # Write the content of the response to the file
-        with open(f"lvr_landcsv_{season}.zip", "wb") as file:
+        with open(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "wb") as file:
             file.write(response.content)
         print(f"Downloaded lvr_landcsv_{season}.zip")
 
         # Unzip
-        with zipfile.ZipFile(f"lvr_landcsv_{season}.zip", "r") as zip_ref:
-            zip_ref.extractall(f"lvr_landcsv_{season}")
+        with zipfile.ZipFile(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "r") as zip_ref:
+            zip_ref.extractall(f"{raw_dir_parent_path}/lvr_landcsv_{season}")
         print(f"Unzipped lvr_landcsv_{season}")
 
         # Delete the zip file
-        os.remove(f"lvr_landcsv_{season}.zip")
+        os.remove(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip")
         print(f"Deleted lvr_landcsv_{season}.zip")
 
     else:
         print("Failed to download the file. Status code:", response.status_code)
 
 
-def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
+def save_history_season_raw_data(raw_dir_parent_path="data/raw", start="101S1", end=NEWEST_SEASON):
     while int(start[-1]) <= 4:
-        save_season_raw_data(start)
+        save_season_raw_data(raw_dir_parent_path, start)
         print(start)
         start = start[:-1] + str(int(start[-1]) + 1)
     start = str(int(start[:3]) + 1) + "S1"
@@ -59,11 +59,11 @@ def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
         for season in range(1, 5):
             if f"{year}S{season}" > end:
                 break
-            save_season_raw_data(f"{year}S{season}")
+            save_season_raw_data(raw_dir_parent_path, f"{year}S{season}")
             print(f"{year}S{season}")
 
 
-def merge_csv(schema="main", raw_dir_path="lvr_landcsv_101S1", dest_dir_path="."):
+def merge_csv(schema="main", raw_dir_path="data/raw/lvr_landcsv_101S1", merged_dir_path="data/merged"):
     schema_dict = config["schemas"][schema]
 
     raw_file_paths = []
@@ -73,7 +73,7 @@ def merge_csv(schema="main", raw_dir_path="lvr_landcsv_101S1", dest_dir_path="."
         )
 
     season = raw_dir_path[-5:]  # yyySs
-    merged_file_path = f"{dest_dir_path}/lvr_land_{season}_{schema}.csv"
+    merged_file_path = f"{merged_dir_path}/lvr_land_{season}_{schema}.csv"
     print(f"Merge {merged_file_path}...")
 
     # Check if the merge file already exists and is non-empty
@@ -147,17 +147,17 @@ def merge_csv(schema="main", raw_dir_path="lvr_landcsv_101S1", dest_dir_path="."
         print("Merge done!\n")
 
 
-def merge_csv_all_schemas(raw_dir_path="lvr_landcsv_???S?"):
+def merge_csv_all_schemas(raw_dir_path="data/raw/lvr_landcsv_???S?", merged_dir_path="data/merged"):
     raw_dir_paths = glob.glob(raw_dir_path)
 
     for raw_dir_path in raw_dir_paths:
         season = raw_dir_path[-5:]
         print(f"Season: {season}\n")
         for schema in config["schemas"]:
-            merged_csv(raw_dir_path, schema)
+            merge_csv(schema, raw_dir_path, merged_dir_path)
 
 
-def process_date(file_path="lvr_land_???S?_*.csv"):
+def process_date(file_path="data/merged/lvr_land_???S?_*.csv"):
     file_paths = glob.glob(file_path)
 
     for file in file_paths:
