@@ -131,11 +131,16 @@ def merge_csv(
 
                 # Write the rows to the merge file
                 for row_idx, row_dict in enumerate(csv_dict_reader):
-                    csv_dict_writer.writerow(
-                        process_data_row(
-                            row_idx, row_dict, schema_dict["fields"], season, path
-                        )
-                    )
+                    try:
+                        processed_row_dict = process_data_row(row_idx, row_dict, schema_dict["fields"], season, path)
+                        csv_dict_writer.writerow(processed_row_dict)
+                    except ValueError:
+                        print("  ValueError on row:", row_idx + 3, "\n")
+                        print("   Raw data:\n", current_file[row_idx + 2]) 
+                        print("   Key value pairs:")
+                        for key, value in processed_row_dict.items():
+                            print(f"    {key}: {value}")
+                        print("")
 
         print("Merge done!\n")
 
@@ -175,13 +180,13 @@ def process_data_row(row_idx, row_dict, fields, season, raw_file_path):
                 row_dict[field] = f"{year}-{month}-{day}"
             except Exception as e:
                 print(
-                    f"Error processing row {row_idx + 3} in column {field}: {row_dict[field]}"
+                    f"  Error processing row {row_idx + 3} in column {field}: {row_dict[field]}"
                 )
                 row_dict[field] = ""
 
         # Standardize field names with changed names
-        elif field_type == "park_m2":
+        elif field_type == "rm_parens":
             if field not in row_dict:
-                row_dict[field] = row_dict.pop(field[:7] + "(" + field[7:] + ")")
+                row_dict[field] = row_dict.pop(field[:-4] + "(" + field[-4:] + ")")
 
     return row_dict
