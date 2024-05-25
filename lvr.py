@@ -30,6 +30,8 @@ def save_season_raw_data(raw_dir_parent_path="data/raw", season=NEWEST_SEASON):
     response = requests.get(url)
 
     if response.status_code == 200:
+        os.makedirs(raw_dir_parent_path, exist_ok=True)
+
         # Write the content of the response to the file
         with open(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "wb") as file:
             file.write(response.content)
@@ -54,8 +56,8 @@ def save_history_season_raw_data(
     raw_dir_parent_path="data/raw", start="101S1", end=NEWEST_SEASON
 ):
     while int(start[-1]) <= 4:
-        save_season_raw_data(raw_dir_parent_path, start)
         print(start)
+        save_season_raw_data(raw_dir_parent_path, start)
         start = start[:-1] + str(int(start[-1]) + 1)
     start = str(int(start[:3]) + 1) + "S1"
 
@@ -63,8 +65,8 @@ def save_history_season_raw_data(
         for season in range(1, 5):
             if f"{year}S{season}" > end:
                 break
-            save_season_raw_data(raw_dir_parent_path, f"{year}S{season}")
             print(f"{year}S{season}")
+            save_season_raw_data(raw_dir_parent_path, f"{year}S{season}")
 
 
 def merge_csv(
@@ -72,6 +74,7 @@ def merge_csv(
     raw_dir_path="data/raw/lvr_landcsv_101S1",
     merged_dir_path="data/merged",
 ):
+    os.makedirs(merged_dir_path, exist_ok=True)
     schema_dict = config["schemas"][schema]
 
     raw_file_paths = []
@@ -132,15 +135,42 @@ def merge_csv(
                 # Write the rows to the merge file
                 for row_idx, row_dict in enumerate(csv_dict_reader):
                     try:
-                        processed_row_dict = process_data_row(row_idx, row_dict, schema_dict["fields"], season, path)
-                        csv_dict_writer.writerow(processed_row_dict)
+                        csv_dict_writer.writerow(
+                            process_data_row_dict(
+                                row_idx, row_dict, schema_dict["fields"], season, path
+                            )
+                        )
                     except ValueError:
-                        print("  ValueError on row:", row_idx + 3, "\n")
-                        print("   Raw data:\n", current_file[row_idx + 2]) 
-                        print("   Key value pairs:")
-                        for key, value in processed_row_dict.items():
-                            print(f"    {key}: {value}")
-                        print("")
+                        print("  ValueError on row:", row_idx + 3)
+                        failed_file_path = f"{merged_dir_path}/failed_{schema}.csv"
+
+                        # Write the row to file
+                        with open(failed_file_path, "a", newline="") as failed_file:
+                            csv_writer = csv.writer(failed_file)
+
+                            # Write the header if the file is new
+                            if failed_file.tell() == 0:
+                                csv_writer.writerow(schema_dict["fields"].keys())
+
+                            row = []
+                            for field in schema_dict["fields"]:
+                                if schema_dict["fields"][field] in [
+                                    "season",
+                                    "city",
+                                    "category",
+                                ]:
+                                    row.append(row_dict[field])
+
+                                else:
+                                    row += (
+                                        current_file[row_idx + 2]
+                                        .replace("\r\n", "")
+                                        .split(",")
+                                    )
+                                    csv_writer.writerow(row)
+                                    break
+
+                        print(f"   Saved in {merged_dir_path}/failed_{schema}.csv")
 
         print("Merge done!\n")
 
@@ -157,7 +187,7 @@ def merge_csv_all_schemas(
             merge_csv(schema, raw_dir_path, merged_dir_path)
 
 
-def process_data_row(row_idx, row_dict, fields, season, raw_file_path):
+def process_data_row_dict(row_idx, row_dict, fields, season, raw_file_path):
     for field in fields:
         field_type = fields[field]
 
@@ -180,7 +210,7 @@ def process_data_row(row_idx, row_dict, fields, season, raw_file_path):
                 row_dict[field] = f"{year}-{month}-{day}"
             except Exception as e:
                 print(
-                    f"  Error processing row {row_idx + 3} in column {field}: {row_dict[field]}"
+                    f"  Row {row_idx + 3} in column {field}: {row_dict[field]} has been replaced with an empty string."
                 )
                 row_dict[field] = ""
 
