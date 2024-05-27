@@ -134,22 +134,32 @@ def merge_csv(
 
                 # Write the rows to the merge file
                 for row_idx, row_dict in enumerate(csv_dict_reader):
-                    try:
-                        csv_dict_writer.writerow(
-                            process_data_row_dict(
-                                row_idx, row_dict, schema_dict["fields"], season, path
+                    processed_row_dict = process_data_row_dict(
+                        row_idx, row_dict, schema_dict["fields"], season, path
+                    )
+
+                    if "Error" not in processed_row_dict:
+                        csv_dict_writer.writerow(processed_row_dict)
+
+                    else:
+                        if processed_row_dict["Error"] == "Invalid number of columns":
+                            print("  Invalid number of columns on row:", row_idx + 3)
+                            invalid_row_path = (
+                                f"{merged_dir_path}/invalid_num_cols_{schema}.csv"
                             )
-                        )
-                    except ValueError:
-                        print("  ValueError on row:", row_idx + 3)
-                        failed_file_path = f"{merged_dir_path}/failed_{schema}.csv"
+
+                        elif processed_row_dict["Error"] == "Invalid date":
+                            print("  Invalid date on row:", row_idx + 3)
+                            invalid_row_path = (
+                                f"{merged_dir_path}/invalid_date_{schema}.csv"
+                            )
 
                         # Write the row to file
-                        with open(failed_file_path, "a", newline="") as failed_file:
-                            csv_writer = csv.writer(failed_file)
+                        with open(invalid_row_path, "a", newline="") as file:
+                            csv_writer = csv.writer(file)
 
                             # Write the header if the file is new
-                            if failed_file.tell() == 0:
+                            if file.tell() == 0:
                                 csv_writer.writerow(schema_dict["fields"].keys())
 
                             row = []
@@ -170,7 +180,7 @@ def merge_csv(
                                     csv_writer.writerow(row)
                                     break
 
-                        print(f"   Saved in {merged_dir_path}/failed_{schema}.csv")
+                        print(f"   Saved in {invalid_row_path}")
 
         print("Merge done!\n")
 
@@ -202,21 +212,26 @@ def process_data_row_dict(row_idx, row_dict, fields, season, raw_file_path):
             code = raw_file_path.split("_")[-2]
             row_dict[field] = config["code_mappings"]["category"][code]
 
-        elif field_type == "date" and row_dict[field] != "":
-            try:
+        elif field_type == "CompactDate" and row_dict[field] != "":
+            if len(row_dict[field]) in [6, 7]:
                 day = row_dict[field][-2:]
                 month = row_dict[field][-4:-2]
                 year = int(row_dict[field][:-4]) + 1911
                 row_dict[field] = f"{year}-{month}-{day}"
-            except Exception as e:
-                print(
-                    f"  Row {row_idx + 3} in column {field}: {row_dict[field]} has been replaced with an empty string."
-                )
-                row_dict[field] = ""
+            else:
+                row_dict["Error"] = "Invalid date"
 
         # Standardize field names with changed names
         elif field_type == "rm_parens":
             if field not in row_dict:
                 row_dict[field] = row_dict.pop(field[:-4] + "(" + field[-4:] + ")")
+
+        if field not in row_dict:
+            row_dict[field] = ""
+
+    if ("Error" not in row_dict and len(row_dict) != len(fields)) or (
+        "Error" in row_dict and len(row_dict) != len(fields) + 1
+    ):
+        row_dict["Error"] = "Invalid number of columns"
 
     return row_dict
