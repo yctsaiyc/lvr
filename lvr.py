@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime, date
 import requests
 import zipfile
 import os
@@ -189,6 +189,23 @@ def merge_csv(
 
                                 csv_writer.writerow(processed_row_dict)
 
+                        elif error == "Dirty char":
+                            print("  Dirty char on row:", row_idx + 3)
+
+                            invalid_row_path = (
+                                f"{merged_dir_path}/dirty_char_{schema}.csv"
+                            )
+
+                            with open(invalid_row_path, "a", newline="") as file:
+                                csv_writer = csv.DictWriter(
+                                    file, fieldnames=schema_dict["fields"]
+                                )
+
+                                if file.tell() == 0:
+                                    csv_writer.writeheader()
+
+                                csv_writer.writerow(processed_row_dict)
+
                         print(f"   Saved in {invalid_row_path}")
 
         print("Merge done!\n")
@@ -218,19 +235,30 @@ def process_date(date_str):
         day = date_str[-2:]
         month = date_str[-4:-2]
         year = int(date_str[:-4])
-        return f"{int(year)+1911}-{month}-{day}"
+        date_str = f"{int(year)+1911}-{month}-{day}"
 
     # Pattern: 99年1月1日 or 100年1月1日
     elif match := re.findall(r"(\d+)年(\d+)月(\d+)日", date_str):
         year, month, day = match[0]
-        return f"{int(year)+1911}-{month}-{day}"
+        date_str = f"{int(year)+1911}-{month}-{day}"
 
-    else:
+    try:
+        # Try to create a datetime object from the string
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return date_str
+    except ValueError:
+        # If a ValueError is raised, the date is invalid
         return "Invalid date"
 
 
 def process_data_row_dict(row_dict, fields, season, raw_file_path):
     error = None
+
+    for value in row_dict.values():
+        if value is not None and any(
+            dirty_char in value for dirty_char in ['"', "'", "\\"]
+        ):
+            error = "Dirty char"
 
     for field in fields:
         if field == "季度":
@@ -277,8 +305,6 @@ def process_data_row_dict(row_dict, fields, season, raw_file_path):
             row_dict[field] = ""
 
     if len(row_dict) != len(fields):
-        # print(list(row_dict.keys()))
-        # print(fields)
         error = "Invalid number of columns"
 
     return row_dict, error
@@ -304,24 +330,58 @@ def process_invalid_date(path="data/merged/invalid_date_*.csv"):
                         "租賃期間-起",
                         "租賃期間-迄",
                     ]:
-                        if not re.match(r"\d{4}-\d{2}-\d{2}", row[field]):
+                        try:
+                            datetime.strptime(row[field], "%Y-%m-%d")
+                        except ValueError:
                             row[field] = ""
+
                 row_dicts.append(row)
 
         with open(
-            "/".join(path.split("/")[:-1]) + f"/corrected_date_{schema}.csv", "w"
+            "/".join(path.split("/")[:-1]) + f"/rm_invalid_date_{schema}.csv", "w"
         ) as f:
             writer = csv.DictWriter(f, fieldnames=fields)
             writer.writeheader()
             writer.writerows(row_dicts)
 
         print("Processed", path)
-        os.remove(path)
-        print("Removed", path)
+
+
+def process_dirty_char(path="data/merged/dirty_char_*.csv"):
+    paths = glob.glob(path)
+
+    for path in paths:
+        schema = path.split(".")[0].split("_")[-1]
+        fields = config["schemas"][schema]["fields"]
+
+        rows = []
+        with open(path, "r") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                row = [
+                    cell.replace('"', "，").replace("'", "，").replace("\\", "，")
+                    for cell in row
+                ]
+                rows.append(row)
+
+        with open(
+            "/".join(path.split("/")[:-1]) + f"/rm_dirty_char_{schema}.csv", "w"
+        ) as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)
+
+        print("Processed", path)
 
 
 if __name__ == "__main__":
-    # lvr.save_history_season_raw_data()
-    lvr.save_season_raw_data()
+    # save_history_season_raw_data()
+    save_season_raw_data()
     merge_csv_all_schemas()
     process_invalid_date()
+    process_dirty_char()
+    # for file_to_remove in glob.glob("data/merged/invalid_date_*.csv"):
+    #     os.remove(file_to_remove)
+    #     print("Removed", file_to_remove)
+    # for file_to_remove in glob.glob("data/merged/dirty_char_*.csv"):
+    #     os.remove(file_to_remove)
+    #     print("Removed", file_to_remove)
