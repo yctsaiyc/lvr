@@ -6,6 +6,7 @@ import json
 import pandas as pd
 import glob
 import csv
+import re
 
 
 with open("config.json", "r") as f:
@@ -134,9 +135,13 @@ def merge_csv(
 
                 # Write the rows to the merge file
                 for row_idx, row_dict in enumerate(csv_dict_reader):
+                    # try:
                     processed_row_dict = process_data_row_dict(
-                        row_idx, row_dict, schema_dict["fields"], season, path
+                        row_dict, schema_dict["fields"], season, path
                     )
+                    # except Exception as e:
+                    #     print(f"  Error on row {row_idx + 3}: {e}")
+                    #     print(row_dict)
 
                     if "Error" not in processed_row_dict:
                         csv_dict_writer.writerow(processed_row_dict)
@@ -144,41 +149,54 @@ def merge_csv(
                     else:
                         if processed_row_dict["Error"] == "Invalid number of columns":
                             print("  Invalid number of columns on row:", row_idx + 3)
+
                             invalid_row_path = (
                                 f"{merged_dir_path}/invalid_num_cols_{schema}.csv"
                             )
 
+                            # Write the row to file
+                            with open(invalid_row_path, "a", newline="") as file:
+                                csv_writer = csv.writer(file)
+
+                                # Write the header if the file is new
+                                if file.tell() == 0:
+                                    csv_writer.writerow(schema_dict["fields"].keys())
+
+                                row = []
+                                for field in schema_dict["fields"]:
+                                    if schema_dict["fields"][field] in [
+                                        "season",
+                                        "city",
+                                        "category",
+                                    ]:
+                                        row.append(row_dict[field])
+
+                                    else:
+                                        row += (
+                                            current_file[row_idx + 2]
+                                            .replace("\r\n", "")
+                                            .split(",")
+                                        )
+                                        csv_writer.writerow(row)
+                                        break
+
                         elif processed_row_dict["Error"] == "Invalid date":
+                            del processed_row_dict["Error"]
                             print("  Invalid date on row:", row_idx + 3)
+
                             invalid_row_path = (
                                 f"{merged_dir_path}/invalid_date_{schema}.csv"
                             )
 
-                        # Write the row to file
-                        with open(invalid_row_path, "a", newline="") as file:
-                            csv_writer = csv.writer(file)
+                            with open(invalid_row_path, "a", newline="") as file:
+                                csv_writer = csv.DictWriter(
+                                    file, fieldnames=schema_dict["fields"].keys()
+                                )
 
-                            # Write the header if the file is new
-                            if file.tell() == 0:
-                                csv_writer.writerow(schema_dict["fields"].keys())
+                                if file.tell() == 0:
+                                    csv_writer.writeheader()
 
-                            row = []
-                            for field in schema_dict["fields"]:
-                                if schema_dict["fields"][field] in [
-                                    "season",
-                                    "city",
-                                    "category",
-                                ]:
-                                    row.append(row_dict[field])
-
-                                else:
-                                    row += (
-                                        current_file[row_idx + 2]
-                                        .replace("\r\n", "")
-                                        .split(",")
-                                    )
-                                    csv_writer.writerow(row)
-                                    break
+                                csv_writer.writerow(processed_row_dict)
 
                         print(f"   Saved in {invalid_row_path}")
 
@@ -197,7 +215,7 @@ def merge_csv_all_schemas(
             merge_csv(schema, raw_dir_path, merged_dir_path)
 
 
-def process_data_row_dict(row_idx, row_dict, fields, season, raw_file_path):
+def process_data_row_dict(row_dict, fields, season, raw_file_path):
     for field in fields:
         field_type = fields[field]
 
@@ -212,12 +230,36 @@ def process_data_row_dict(row_idx, row_dict, fields, season, raw_file_path):
             code = raw_file_path.split("_")[-2]
             row_dict[field] = config["code_mappings"]["category"][code]
 
-        elif field_type == "CompactDate" and row_dict[field] != "":
-            if len(row_dict[field]) in [6, 7]:
+        elif (
+            field_type == "date"
+            and field in row_dict
+            and row_dict[field] not in [None, ""]
+        ) or field_type in ["rent_start_date", "rent_end_date"]:
+
+            if field_type == "rent_start_date" and field.split("-")[0] in row_dict:
+                row_dict[field] = row_dict[field.split("-")[0]].split("~")[0]
+
+            elif field_type == "rent_end_date" and field.split("-")[0] in row_dict:
+                row_dict[field] = row_dict[field.split("-")[0]].split("~")[-1]
+                del row_dict[field.split("-")[0]]
+
+            elif field_type in ["rent_start_date", "rent_end_date"]:
+                row_dict[field] = ""
+
+            match = re.findall(r"(\d+)\D+(\d+)\D+(\d+)", row_dict[field])
+
+            if match:
+                year = match[0][0]
+                month = match[0][1]
+                day = match[0][2]
+                row_dict[field] = f"{year}-{month}-{day}"
+
+            elif row_dict[field].isdigit() and len(row_dict[field]) in [6, 7]:
                 day = row_dict[field][-2:]
                 month = row_dict[field][-4:-2]
                 year = int(row_dict[field][:-4]) + 1911
                 row_dict[field] = f"{year}-{month}-{day}"
+
             else:
                 row_dict["Error"] = "Invalid date"
 
@@ -235,3 +277,11 @@ def process_data_row_dict(row_idx, row_dict, fields, season, raw_file_path):
         row_dict["Error"] = "Invalid number of columns"
 
     return row_dict
+
+
+def process_invalid_date(path="data/merged/invalid_date_*.csv"):
+    schema = path.split(".")[0].split("_")[-1]
+    fields = config["schemas"][schema]["fields"]
+    for field in fields:
+        if fields[field] == "date":
+            print(field)
