@@ -128,26 +128,22 @@ def merge_csv(
                     current_file.seek(0)
 
                 # Read the CSV file
-                csv_dict_reader = csv.DictReader(current_file)
+                csv_dict_reader = csv.DictReader(current_file, quotechar="\x07")
 
                 # Skip English header
                 next(csv_dict_reader)
 
                 # Write the rows to the merge file
                 for row_idx, row_dict in enumerate(csv_dict_reader):
-                    # try:
-                    processed_row_dict = process_data_row_dict(
+                    processed_row_dict, error = process_data_row_dict(
                         row_dict, schema_dict["fields"], season, path
                     )
-                    # except Exception as e:
-                    #     print(f"  Error on row {row_idx + 3}: {e}")
-                    #     print(row_dict)
 
-                    if "Error" not in processed_row_dict:
+                    if error is None:
                         csv_dict_writer.writerow(processed_row_dict)
 
                     else:
-                        if processed_row_dict["Error"] == "Invalid number of columns":
+                        if error == "Invalid number of columns":
                             print("  Invalid number of columns on row:", row_idx + 3)
 
                             invalid_row_path = (
@@ -160,15 +156,11 @@ def merge_csv(
 
                                 # Write the header if the file is new
                                 if file.tell() == 0:
-                                    csv_writer.writerow(schema_dict["fields"].keys())
+                                    csv_writer.writerow(schema_dict["fields"])
 
                                 row = []
                                 for field in schema_dict["fields"]:
-                                    if schema_dict["fields"][field] in [
-                                        "season",
-                                        "city",
-                                        "category",
-                                    ]:
+                                    if field in ["季度", "縣市", "類別"]:
                                         row.append(row_dict[field])
 
                                     else:
@@ -180,8 +172,7 @@ def merge_csv(
                                         csv_writer.writerow(row)
                                         break
 
-                        elif processed_row_dict["Error"] == "Invalid date":
-                            del processed_row_dict["Error"]
+                        elif error == "Invalid date":
                             print("  Invalid date on row:", row_idx + 3)
 
                             invalid_row_path = (
@@ -190,7 +181,7 @@ def merge_csv(
 
                             with open(invalid_row_path, "a", newline="") as file:
                                 csv_writer = csv.DictWriter(
-                                    file, fieldnames=schema_dict["fields"].keys()
+                                    file, fieldnames=schema_dict["fields"]
                                 )
 
                                 if file.tell() == 0:
@@ -215,73 +206,122 @@ def merge_csv_all_schemas(
             merge_csv(schema, raw_dir_path, merged_dir_path)
 
 
-def process_data_row_dict(row_dict, fields, season, raw_file_path):
-    for field in fields:
-        field_type = fields[field]
+def process_date(date_str):
+    if date_str is None:
+        return None
 
-        if field_type == "season":
+    elif date_str == "":
+        return ""
+
+    # Pattern: 990101 or 1000101
+    elif date_str.isdigit() and len(date_str) in [6, 7]:
+        day = date_str[-2:]
+        month = date_str[-4:-2]
+        year = int(date_str[:-4])
+        return f"{int(year)+1911}-{month}-{day}"
+
+    # Pattern: 99年1月1日 or 100年1月1日
+    elif match := re.findall(r"(\d+)年(\d+)月(\d+)日", date_str):
+        year, month, day = match[0]
+        return f"{int(year)+1911}-{month}-{day}"
+
+    else:
+        return "Invalid date"
+
+
+def process_data_row_dict(row_dict, fields, season, raw_file_path):
+    error = None
+
+    for field in fields:
+        if field == "季度":
             row_dict[field] = season.replace("S", "Q")
 
-        elif field_type == "city":
+        elif field == "縣市":
             code = raw_file_path.split("/")[-1][0]
             row_dict[field] = config["code_mappings"]["city"][code]
 
-        elif field_type == "category":
+        elif field == "類別":
             code = raw_file_path.split("_")[-2]
             row_dict[field] = config["code_mappings"]["category"][code]
 
-        elif (
-            field_type == "date"
-            and field in row_dict
-            and row_dict[field] not in [None, ""]
-        ) or field_type in ["rent_start_date", "rent_end_date"]:
+        elif field in [
+            "交易年月日",
+            "建築完成年月",
+            "建築完成日期",
+            "租賃年月日",
+        ]:
+            processed_date = process_date(row_dict[field])
 
-            if field_type == "rent_start_date" and field.split("-")[0] in row_dict:
-                row_dict[field] = row_dict[field.split("-")[0]].split("~")[0]
-
-            elif field_type == "rent_end_date" and field.split("-")[0] in row_dict:
-                row_dict[field] = row_dict[field.split("-")[0]].split("~")[-1]
-                del row_dict[field.split("-")[0]]
-
-            elif field_type in ["rent_start_date", "rent_end_date"]:
-                row_dict[field] = ""
-
-            match = re.findall(r"(\d+)\D+(\d+)\D+(\d+)", row_dict[field])
-
-            if match:
-                year = match[0][0]
-                month = match[0][1]
-                day = match[0][2]
-                row_dict[field] = f"{year}-{month}-{day}"
-
-            elif row_dict[field].isdigit() and len(row_dict[field]) in [6, 7]:
-                day = row_dict[field][-2:]
-                month = row_dict[field][-4:-2]
-                year = int(row_dict[field][:-4]) + 1911
-                row_dict[field] = f"{year}-{month}-{day}"
+            if processed_date == "Invalid date":
+                error = "Invalid date"
 
             else:
-                row_dict["Error"] = "Invalid date"
+                row_dict[field] = processed_date
 
-        # Standardize field names with changed names
-        elif field_type == "rm_parens":
-            if field not in row_dict:
-                row_dict[field] = row_dict.pop(field[:-4] + "(" + field[-4:] + ")")
+        elif field == "租賃期間-起" and "租賃期間" in row_dict:
+            row_dict[field] = row_dict["租賃期間"].split("~")[0]
 
-        if field not in row_dict:
+        elif field == "租賃期間-迄" and "租賃期間" in row_dict:
+            row_dict[field] = row_dict["租賃期間"].split("~")[-1]
+            del row_dict["租賃期間"]
+
+        elif (
+            field == "車位移轉總面積平方公尺" and "車位移轉總面積(平方公尺)" in row_dict
+        ):
+            row_dict[field] = row_dict.pop("車位移轉總面積(平方公尺)")
+
+        elif field == "土地移轉面積平方公尺" and "土地移轉面積(平方公尺)" in row_dict:
+            row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
+
+        elif field not in row_dict:
             row_dict[field] = ""
 
-    if ("Error" not in row_dict and len(row_dict) != len(fields)) or (
-        "Error" in row_dict and len(row_dict) != len(fields) + 1
-    ):
-        row_dict["Error"] = "Invalid number of columns"
+    if len(row_dict) != len(fields):
+        # print(list(row_dict.keys()))
+        # print(fields)
+        error = "Invalid number of columns"
 
-    return row_dict
+    return row_dict, error
 
 
 def process_invalid_date(path="data/merged/invalid_date_*.csv"):
-    schema = path.split(".")[0].split("_")[-1]
-    fields = config["schemas"][schema]["fields"]
-    for field in fields:
-        if fields[field] == "date":
-            print(field)
+    paths = glob.glob(path)
+
+    for path in paths:
+        schema = path.split(".")[0].split("_")[-1]
+        fields = config["schemas"][schema]["fields"]
+
+        row_dicts = []
+        with open(path, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                for field in fields:
+                    if field in [
+                        "交易年月日",
+                        "建築完成年月",
+                        "建築完成日期",
+                        "租賃年月日",
+                        "租賃期間-起",
+                        "租賃期間-迄",
+                    ]:
+                        if not re.match(r"\d{4}-\d{2}-\d{2}", row[field]):
+                            row[field] = ""
+                row_dicts.append(row)
+
+        with open(
+            "/".join(path.split("/")[:-1]) + f"/corrected_date_{schema}.csv", "w"
+        ) as f:
+            writer = csv.DictWriter(f, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(row_dicts)
+
+        print("Processed", path)
+        os.remove(path)
+        print("Removed", path)
+
+
+if __name__ == "__main__":
+    # lvr.save_history_season_raw_data()
+    lvr.save_season_raw_data()
+    merge_csv_all_schemas()
+    process_invalid_date()
