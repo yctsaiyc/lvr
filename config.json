@@ -1,5 +1,7 @@
 {
     "url":"https://plvr.land.moi.gov.tw//DownloadSeason?type=zip&fileName=lvr_landcsv.zip&season=",
+    "raw_data_path":"data/raw",
+    "processed_data_path":"data/merged",
     "schemas":{
         "main":{
             "files":[

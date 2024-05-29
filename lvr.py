@@ -3,10 +3,11 @@ import requests
 import zipfile
 import os
 import json
-import pandas as pd
 import glob
 import csv
 import re
+import sys
+import shutil
 
 
 with open("config.json", "r") as f:
@@ -24,13 +25,14 @@ else:  # today.month in [10, 11, 12]
     NEWEST_SEASON = f"{today.year - 1911}S3"
 
 
-def save_season_raw_data(raw_dir_parent_path="data/raw", season=NEWEST_SEASON):
+def save_season_raw_data(season=NEWEST_SEASON):
     url = config["url"] + season
     print("url:", url)
 
     response = requests.get(url)
 
     if response.status_code == 200:
+        raw_dir_parent_path = config["raw_data_path"]
         os.makedirs(raw_dir_parent_path, exist_ok=True)
 
         # Write the content of the response to the file
@@ -53,9 +55,9 @@ def save_season_raw_data(raw_dir_parent_path="data/raw", season=NEWEST_SEASON):
         print("Failed to download the file. Status code:", response.status_code)
 
 
-def save_history_season_raw_data(
-    raw_dir_parent_path="data/raw", start="101S1", end=NEWEST_SEASON
-):
+def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
+    raw_dir_parent_path = config["raw_data_path"]
+
     while int(start[-1]) <= 4:
         print(start)
         save_season_raw_data(raw_dir_parent_path, start)
@@ -70,11 +72,9 @@ def save_history_season_raw_data(
             save_season_raw_data(raw_dir_parent_path, f"{year}S{season}")
 
 
-def merge_csv(
-    schema="main",
-    raw_dir_path="data/raw/lvr_landcsv_101S1",
-    merged_dir_path="data/merged",
-):
+def merge_csv(schema="main", season=NEWEST_SEASON):
+    raw_dir_path = f"{config['raw_data_path']}/lvr_landcsv_{season}"
+    merged_dir_path = os.path.join(config["processed_data_path"], schema)
     os.makedirs(merged_dir_path, exist_ok=True)
     schema_dict = config["schemas"][schema]
 
@@ -211,16 +211,15 @@ def merge_csv(
         print("Merge done!\n")
 
 
-def merge_csv_all_schemas(
-    raw_dir_path="data/raw/lvr_landcsv_???S?", merged_dir_path="data/merged"
-):
-    raw_dir_paths = glob.glob(raw_dir_path)
+def merge_csv_all_schemas(season="???S?"):
+    raw_dir_paths = glob.glob(f"{config['raw_data_path']}/lvr_landcsv_{season}")
 
     for raw_dir_path in raw_dir_paths:
         season = raw_dir_path[-5:]
         print(f"Season: {season}\n")
         for schema in config["schemas"]:
-            merge_csv(schema, raw_dir_path, merged_dir_path)
+            merged_dir_path = os.path.join(config["processed_data_path"], schema)
+            merge_csv(schema, season)
 
 
 def process_date(date_str):
@@ -287,10 +286,10 @@ def process_data_row_dict(row_dict, fields, season, raw_file_path):
                 row_dict[field] = processed_date
 
         elif field == "租賃期間-起" and "租賃期間" in row_dict:
-            row_dict[field] = row_dict["租賃期間"].split("~")[0]
+            row_dict[field] = process_date(row_dict["租賃期間"].split("~")[0])
 
         elif field == "租賃期間-迄" and "租賃期間" in row_dict:
-            row_dict[field] = row_dict["租賃期間"].split("~")[-1]
+            row_dict[field] = process_date(row_dict["租賃期間"].split("~")[-1])
             del row_dict["租賃期間"]
 
         elif (
@@ -310,7 +309,7 @@ def process_data_row_dict(row_dict, fields, season, raw_file_path):
     return row_dict, error
 
 
-def process_invalid_date(path="data/merged/invalid_date_*.csv"):
+def process_invalid_date(path=f"{config['processed_data_path']}/invalid_date_*.csv"):
     paths = glob.glob(path)
 
     for path in paths:
@@ -347,7 +346,7 @@ def process_invalid_date(path="data/merged/invalid_date_*.csv"):
         print("Processed", path)
 
 
-def process_dirty_char(path="data/merged/dirty_char_*.csv"):
+def process_dirty_char(path=f"{config['processed_data_path']}/dirty_char_*.csv"):
     paths = glob.glob(path)
 
     for path in paths:
@@ -358,10 +357,7 @@ def process_dirty_char(path="data/merged/dirty_char_*.csv"):
         with open(path, "r") as f:
             reader = csv.reader(f)
             for row in reader:
-                row = [
-                    cell.replace('"', "，").replace("'", "，").replace("\\", "，")
-                    for cell in row
-                ]
+                row = [cell[:-1] if cell.endswith("\\") else cell for cell in row]
                 rows.append(row)
 
         with open(
@@ -379,9 +375,14 @@ if __name__ == "__main__":
     merge_csv_all_schemas()
     process_invalid_date()
     process_dirty_char()
-    # for file_to_remove in glob.glob("data/merged/invalid_date_*.csv"):
+    # for file_to_remove in glob.glob(
+    #     f"{config['processed_data_path']}/*/invalid_date_*.csv"
+    # ):
     #     os.remove(file_to_remove)
     #     print("Removed", file_to_remove)
-    # for file_to_remove in glob.glob("data/merged/dirty_char_*.csv"):
+    # for file_to_remove in glob.glob(
+    #     f"{config['processed_data_path']}/*/dirty_char_*.csv"
+    # ):
     #     os.remove(file_to_remove)
     #     print("Removed", file_to_remove)
+    # shutil.rmtree(config["raw_data_path"])
