@@ -29,6 +29,7 @@ def set_config(config_path):
         global config
         config = json.load(f)
 
+
 def save_season_raw_data(season=NEWEST_SEASON):
     url = config["url"] + season
     print("url:", url)
@@ -37,7 +38,7 @@ def save_season_raw_data(season=NEWEST_SEASON):
 
     if response.status_code == 200:
         dir_path = os.path.join(config["data_path"], "raw")
-        os.makedirs(data_path, exist_ok=True)
+        os.makedirs(dir_path, exist_ok=True)
 
         # Write the content of the response to the file
         file_path = os.path.join(dir_path, f"lvr_landcsv_{season}")
@@ -52,7 +53,7 @@ def save_season_raw_data(season=NEWEST_SEASON):
 
         # Delete the zip file
         os.remove(f"{file_path}.zip")
-        print(f"Deleted lvr_landcsv_{season}.zip")
+        print(f"Deleted lvr_landcsv_{season}.zip\n")
 
     else:
         print("Failed to download the file. Status code:", response.status_code)
@@ -71,6 +72,48 @@ def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
                 break
             print(f"{year}S{season}")
             save_season_raw_data(f"{year}S{season}")
+
+
+def organize_season_raw_data_paths(season=NEWEST_SEASON):
+    print(f"Organizing {season} files...")
+    dir_path = os.path.join(config["data_path"], "raw")
+
+    for schema in config["schemas"].keys():
+        for files in config["schemas"][schema]["files"]:
+            src_path_pattern = os.path.join(
+                dir_path, f"lvr_landcsv_{season}", files["pattern"]
+            )
+            src_paths = glob.glob(src_path_pattern)
+            dest_dir = os.path.join(dir_path, schema)
+            os.makedirs(dest_dir, exist_ok=True)
+
+            for src_path in src_paths:
+                city = os.path.basename(src_path).split("_")[0]
+                category = (
+                    os.path.basename(src_path)
+                    .replace(".csv", "")
+                    .split("lvr_land_")[-1][0]
+                )
+                dest_path = os.path.join(
+                    dest_dir, f"{schema}_{season}_{city}_{category}.csv"
+                )
+                shutil.move(src_path, dest_path)
+
+    shutil.rmtree(os.path.join(dir_path, f"lvr_landcsv_{season}"))
+    print("Done!")
+
+
+def organize_season_raw_data_paths_all_season():
+    dir_paths = glob.glob(os.path.join(config["data_path"], "raw", "lvr_landcsv_???S?"))
+
+    # Regular expression to match the pattern and capture the '???S?' part
+    regex = re.compile(r"lvr_landcsv_(\w{3}S\w)")
+
+    for dir_path in dir_paths:
+        dir_path = os.path.basename(dir_path)
+        season = regex.match(dir_path)
+        if season:
+            organize_season_raw_data_paths(season.group(1))
 
 
 def merge_csv(schema="main", season=NEWEST_SEASON):
@@ -227,7 +270,7 @@ def process_date(date_str):
     if date_str in ("", None):
         return date_str
 
-    match= re.findall(r"(\d+)年(\d+)月(\d+)日", date_str)
+    match = re.findall(r"(\d+)年(\d+)月(\d+)日", date_str)
 
     # Pattern: 990101 or 1000101
     if date_str.isdigit() and len(date_str) in [6, 7]:
@@ -307,7 +350,7 @@ def process_data_row_dict(row_dict, fields, season, raw_file_path):
     return row_dict, error
 
 
-def process_invalid_date(path=f"{config['processed_data_path']}/invalid_date_*.csv"):
+def process_invalid_date(path=""):
     paths = glob.glob(path)
 
     for path in paths:
@@ -344,7 +387,7 @@ def process_invalid_date(path=f"{config['processed_data_path']}/invalid_date_*.c
         print("Processed", path)
 
 
-def process_dirty_char(path=f"{config['processed_data_path']}/dirty_char_*.csv"):
+def process_dirty_char(path=""):
     paths = glob.glob(path)
 
     for path in paths:
@@ -370,7 +413,9 @@ def process_dirty_char(path=f"{config['processed_data_path']}/dirty_char_*.csv")
 def crawling(config_path):
     set_config(config_path)
 
-    save_season_raw_data()
+    save_history_season_raw_data("112S4", "113S1")
+    organize_season_raw_data_paths_all_season()
+    return
     merge_csv_all_schemas()
     process_invalid_date()
     process_dirty_char()
@@ -385,3 +430,6 @@ def crawling(config_path):
         os.remove(file_to_remove)
         print("Removed", file_to_remove)
     shutil.rmtree(config["raw_data_path"])
+
+
+crawling("lvr_land.json")
