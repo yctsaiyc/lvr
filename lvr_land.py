@@ -10,9 +10,6 @@ import sys
 import shutil
 
 
-with open("config.json", "r") as f:
-    config = json.load(f)
-
 today = date.today()
 
 if today.month in [1, 2, 3]:
@@ -24,6 +21,13 @@ elif today.month in [7, 8, 9]:
 else:  # today.month in [10, 11, 12]
     NEWEST_SEASON = f"{today.year - 1911}S3"
 
+config = {}
+
+
+def set_config(config_path):
+    with open(config_path, "r") as f:
+        global config
+        config = json.load(f)
 
 def save_season_raw_data(season=NEWEST_SEASON):
     url = config["url"] + season
@@ -32,23 +36,22 @@ def save_season_raw_data(season=NEWEST_SEASON):
     response = requests.get(url)
 
     if response.status_code == 200:
-        raw_dir_parent_path = config["raw_data_path"]
-        os.makedirs(raw_dir_parent_path, exist_ok=True)
+        dir_path = os.path.join(config["data_path"], "raw")
+        os.makedirs(data_path, exist_ok=True)
 
         # Write the content of the response to the file
-        with open(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "wb") as file:
+        file_path = os.path.join(dir_path, f"lvr_landcsv_{season}")
+        with open(f"{file_path}.zip", "wb") as file:
             file.write(response.content)
         print(f"Downloaded lvr_landcsv_{season}.zip")
 
         # Unzip
-        with zipfile.ZipFile(
-            f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "r"
-        ) as zip_ref:
-            zip_ref.extractall(f"{raw_dir_parent_path}/lvr_landcsv_{season}")
+        with zipfile.ZipFile(f"{file_path}.zip", "r") as zip_ref:
+            zip_ref.extractall(file_path)
         print(f"Unzipped lvr_landcsv_{season}")
 
         # Delete the zip file
-        os.remove(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip")
+        os.remove(f"{file_path}.zip")
         print(f"Deleted lvr_landcsv_{season}.zip")
 
     else:
@@ -56,11 +59,9 @@ def save_season_raw_data(season=NEWEST_SEASON):
 
 
 def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
-    raw_dir_parent_path = config["raw_data_path"]
-
     while int(start[-1]) <= 4:
         print(start)
-        save_season_raw_data(raw_dir_parent_path, start)
+        save_season_raw_data(start)
         start = start[:-1] + str(int(start[-1]) + 1)
     start = str(int(start[:3]) + 1) + "S1"
 
@@ -69,7 +70,7 @@ def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
             if f"{year}S{season}" > end:
                 break
             print(f"{year}S{season}")
-            save_season_raw_data(raw_dir_parent_path, f"{year}S{season}")
+            save_season_raw_data(f"{year}S{season}")
 
 
 def merge_csv(schema="main", season=NEWEST_SEASON):
@@ -223,31 +224,28 @@ def merge_csv_all_schemas(season="???S?"):
 
 
 def process_date(date_str):
-    if date_str is None:
-        return None
+    if date_str in ("", None):
+        return date_str
 
-    elif date_str == "":
-        return ""
+    match= re.findall(r"(\d+)年(\d+)月(\d+)日", date_str)
 
     # Pattern: 990101 or 1000101
-    elif date_str.isdigit() and len(date_str) in [6, 7]:
+    if date_str.isdigit() and len(date_str) in [6, 7]:
         day = date_str[-2:]
         month = date_str[-4:-2]
         year = int(date_str[:-4])
         date_str = f"{int(year)+1911}-{month}-{day}"
 
     # Pattern: 99年1月1日 or 100年1月1日
-    elif match := re.findall(r"(\d+)年(\d+)月(\d+)日", date_str):
+    elif match:
         year, month, day = match[0]
         date_str = f"{int(year)+1911}-{month}-{day}"
 
     try:
-        # Try to create a datetime object from the string
-        datetime.strptime(date_str, "%Y-%m-%d")
-        return date_str
+        return datetime.strptime(date_str, "%Y-%m-%d")
+
     except ValueError:
-        # If a ValueError is raised, the date is invalid
-        return "Invalid date"
+        return ""
 
 
 def process_data_row_dict(row_dict, fields, season, raw_file_path):
@@ -369,20 +367,21 @@ def process_dirty_char(path=f"{config['processed_data_path']}/dirty_char_*.csv")
         print("Processed", path)
 
 
-if __name__ == "__main__":
-    # save_history_season_raw_data()
+def crawling(config_path):
+    set_config(config_path)
+
     save_season_raw_data()
     merge_csv_all_schemas()
     process_invalid_date()
     process_dirty_char()
-    # for file_to_remove in glob.glob(
-    #     f"{config['processed_data_path']}/*/invalid_date_*.csv"
-    # ):
-    #     os.remove(file_to_remove)
-    #     print("Removed", file_to_remove)
-    # for file_to_remove in glob.glob(
-    #     f"{config['processed_data_path']}/*/dirty_char_*.csv"
-    # ):
-    #     os.remove(file_to_remove)
-    #     print("Removed", file_to_remove)
-    # shutil.rmtree(config["raw_data_path"])
+    for file_to_remove in glob.glob(
+        f"{config['processed_data_path']}/*/invalid_date_*.csv"
+    ):
+        os.remove(file_to_remove)
+        print("Removed", file_to_remove)
+    for file_to_remove in glob.glob(
+        f"{config['processed_data_path']}/*/dirty_char_*.csv"
+    ):
+        os.remove(file_to_remove)
+        print("Removed", file_to_remove)
+    shutil.rmtree(config["raw_data_path"])
