@@ -117,72 +117,80 @@ def organize_season_raw_data_paths_all_season():
     print("")
 
 
-def merge_csv(schema="main", season=NEWEST_SEASON):
-    raw_dir_path = f"{config['raw_data_path']}/lvr_landcsv_{season}"
-    merged_dir_path = os.path.join(config["processed_data_path"], schema)
-    os.makedirs(merged_dir_path, exist_ok=True)
-    schema_dict = config["schemas"][schema]
+def merge_csv():
+    print("Merging csv files...\n")
+    for schema in config["schemas"]:
+        schema_dict = config["schemas"][schema]
+        merged_dir_path = os.path.join(config["data_path"], schema)
+        print("Processing", merged_dir_path, "\n")
+        seasons = os.listdir(merged_dir_path)
 
-    raw_file_paths = []
-    for schema_file in schema_dict["files"]:
-        raw_file_paths += glob.glob(os.path.join(raw_dir_path, schema_file["pattern"]))
+        for season in seasons:
+            merged_file_path = os.path.join(
+                merged_dir_path, f"lvr_land_{season}_{schema}.csv"
+            )
+            print(merged_file_path, "...")
 
-    season = raw_dir_path[-5:]  # yyySs
-    merged_file_path = f"{merged_dir_path}/lvr_land_{season}_{schema}.csv"
-    print(f"Merge {merged_file_path}...")
+            # Check if the merge file already exists and is non-empty
+            merged_file_exists = (
+                os.path.isfile(merged_file_path)
+                and os.path.getsize(merged_file_path) > 0
+            )
 
-    # Check if the merge file already exists and is non-empty
-    merged_file_exists = (
-        os.path.isfile(merged_file_path) and os.path.getsize(merged_file_path) > 0
-    )
+            # If the merge file already exists, ask the user if they want to overwrite it
+            if merged_file_exists:
+                action = input(
+                    f"Merge file already exists. Overwrite it? (y/n): "
+                ).lower()
 
-    # If the merge file already exists, ask the user if they want to overwrite it
-    if merged_file_exists:
-        action = input(f"Merge file already exists. Overwrite it? (y/n): ").lower()
+                if action == "y" or "yes":
+                    os.remove(merged_file_path)
+                    merged_file_exists = False
 
-        if action == "y" or "yes":
-            os.remove(merged_file_path)
-            merged_file_exists = False
-
-        elif action == "n" or "no":
-            return
-
-        else:
-            print("Invalid action.")
-            return
-
-    # Create the merge file
-    with open(merged_file_path, "a", newline="") as merged_file:
-        csv_dict_writer = csv.DictWriter(merged_file, fieldnames=schema_dict["fields"])
-        csv_dict_writer.writeheader()
-
-        for path in raw_file_paths:
-            print("", path)
-
-            # Read the CSV file
-            with open(path, "r", newline="") as current_file:
-
-                # Remove Byte Order Mark ("\ufeff") if it exists
-                first_line = current_file.readline()
-
-                if first_line.startswith("\ufeff"):
-                    first_line = first_line.lstrip("\ufeff")
-                    current_file = [first_line] + current_file.readlines()
+                elif action == "n" or "no":
+                    return
 
                 else:
-                    current_file.seek(0)
+                    print("Invalid action.")
+                    return
 
-                # Read the CSV file
-                csv_dict_reader = csv.DictReader(current_file, quotechar="\x07")
+            src_dir_path = os.path.join(merged_dir_path, season)
+            for src_file_path in os.listdir(src_dir_path):
+                print("", "Merging", src_file_path, "...")
+                src_file_path = os.path.join(src_dir_path, src_file_path)
 
-                # Skip English header
-                next(csv_dict_reader)
-
-                # Write the rows to the merge file
-                for row_idx, row_dict in enumerate(csv_dict_reader):
-                    processed_row_dict = process_data_row_dict(
-                        row_dict, schema, schema_dict["fields"], season, path
+                with open(merged_file_path, "a", newline="") as merged_file:
+                    csv_dict_writer = csv.DictWriter(
+                        merged_file, fieldnames=schema_dict["fields"]
                     )
+
+                    if not merged_file_exists:
+                        csv_dict_writer.writeheader()
+
+                    # Read the CSV file
+                    with open(src_file_path, "r", newline="") as current_file:
+
+                        # Remove Byte Order Mark ("\ufeff") if it exists
+                        first_line = current_file.readline()
+
+                        if first_line.startswith("\ufeff"):
+                            first_line = first_line.lstrip("\ufeff")
+                            current_file = [first_line] + current_file.readlines()
+
+                        else:
+                            current_file.seek(0)
+
+                        # Read the CSV file
+                        csv_dict_reader = csv.DictReader(current_file, quotechar="\x07")
+
+                        # Skip English header
+                        next(csv_dict_reader)
+
+                        # Write the rows to the merge file
+                        for row_idx, row_dict in enumerate(csv_dict_reader):
+                            processed_row_dict = process_data_row_dict(
+                                row_dict, os.path.basename(src_file_path)
+                            )
 
                     if processed_row_dict != "Invalid":
                         csv_dict_writer.writerow(processed_row_dict)
