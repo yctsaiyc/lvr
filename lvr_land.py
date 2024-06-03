@@ -410,6 +410,77 @@ def process_dirty_char(path=""):
         print("Processed", path)
 
 
+def is_valid_datatype(string, datatype):
+    if string in ("", None):
+        return True
+
+    elif datatype == "string":
+        return True
+
+    elif datatype == "bool":
+        if string in ("有", "無"):
+            return True
+        return False
+
+    try:
+        if datatype == "int":
+            int(string)
+            return True
+
+        elif datatype == "float":
+            float(string)
+            return True
+
+        elif datatype == "date":
+            datetime.strptime(string, "%Y-%m-%d")
+            return True
+
+        return False
+
+    except ValueError:
+        return False
+
+
+def save_invalid_data(schema, row_dict):
+    dir_path = os.path.join(config["data_path"], "invalid_data")
+    os.makedirs(dir_path, exist_ok=True)
+    file_path = os.path.join(dir_path, f"invalid_data_{schema}.csv")
+
+    row = [row_dict[field] for field in row_dict.keys()]
+    with open(file_path, "a") as f:
+        writer = csv.writer(f)
+        writer.writerow(row)
+
+
+def check_datatype(file_path):
+    print("Checking", file_path)
+    schema = file_path.split(".")[0].split("_")[-1]
+    field_dict = config["schemas"][schema]["fields"]
+
+    with open(file_path) as f:
+        reader = csv.DictReader(f)
+        row_dicts = []
+
+        for row_dict in reader:
+            for field in field_dict:
+                datatype = field_dict[field]
+                if not is_valid_datatype(row_dict[field], datatype):
+                    save_invalid_data(schema, row_dict)
+                    break
+            row_dicts.append(row_dict)
+
+    with open(file_path, "w") as f:
+        writer = csv.DictWriter(f, fieldnames=field_dict.keys())
+        writer.writeheader()
+        writer.writerows(row_dicts)
+
+
+def check_datatype_all():
+    file_paths = glob.glob(f"{config['data_path']}/merged/*.csv")
+    for file_path in file_paths:
+        check_datatype(file_path)
+
+
 def crawling(config_path):
     set_config(config_path)
 
@@ -430,6 +501,3 @@ def crawling(config_path):
         os.remove(file_to_remove)
         print("Removed", file_to_remove)
     shutil.rmtree(config["raw_data_path"])
-
-
-crawling("lvr_land.json")
