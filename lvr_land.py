@@ -386,28 +386,27 @@ def process_invalid_date(path=""):
 
         print("Processed", path)
 
+    
+def rm_special_char(csv_path):
+    rows = []
+    ctrl_chars = ''.join(chr(i) for i in range(0, 32) if i != 10)
+    trans_tb = str.maketrans('', '', ctrl_chars)
 
-def process_dirty_char(path=""):
-    paths = glob.glob(path)
+    with open(csv_path, mode='r', encoding='utf-8', newline='') as file:
+        reader = csv.reader(file)
 
-    for path in paths:
-        schema = path.split(".")[0].split("_")[-1]
-        fields = config["schemas"][schema]["fields"]
+        for row in reader:
+            # Remove control characters
+            row = [cell.translate(trans_tb) for cell in row]
 
-        rows = []
-        with open(path, "r") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                row = [cell[:-1] if cell.endswith("\\") else cell for cell in row]
-                rows.append(row)
+            # Replace "\," with ","
+            row = [cell[:-1] if cell.endswith("\\") else cell for cell in row]
+            rows.append(row)
 
-        with open(
-            "/".join(path.split("/")[:-1]) + f"/rm_dirty_char_{schema}.csv", "w"
-        ) as f:
-            writer = csv.writer(f)
-            writer.writerows(rows)
-
-        print("Processed", path)
+    # Write the cleaned data back to the CSV file
+    with open(csv_path, mode='w', encoding='utf-8', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerows(rows)
 
 
 def is_valid_datatype(string, datatype):
