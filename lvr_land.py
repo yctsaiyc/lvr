@@ -76,15 +76,15 @@ def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
 
 def organize_season_raw_data_paths(season=NEWEST_SEASON):
     print(f"Organizing {season} files...")
-    dir_path = os.path.join(config["data_path"], "raw")
+    dir_path = config["data_path"]
 
     for schema in config["schemas"].keys():
         for files in config["schemas"][schema]["files"]:
             src_path_pattern = os.path.join(
-                dir_path, f"lvr_landcsv_{season}", files["pattern"]
+                dir_path, "raw", f"lvr_landcsv_{season}", files["pattern"]
             )
             src_paths = glob.glob(src_path_pattern)
-            dest_dir = os.path.join(dir_path, schema)
+            dest_dir = os.path.join(dir_path, schema, season)
             os.makedirs(dest_dir, exist_ok=True)
 
             for src_path in src_paths:
@@ -97,9 +97,9 @@ def organize_season_raw_data_paths(season=NEWEST_SEASON):
                 dest_path = os.path.join(
                     dest_dir, f"{schema}_{season}_{city}_{category}.csv"
                 )
-                shutil.move(src_path, dest_path)
+                shutil.copy(src_path, dest_path)
 
-    shutil.rmtree(os.path.join(dir_path, f"lvr_landcsv_{season}"))
+    # shutil.rmtree(os.path.join(dir_path, f"lvr_landcsv_{season}"))
     print("Done!")
 
 
@@ -114,6 +114,7 @@ def organize_season_raw_data_paths_all_season():
         season = regex.match(dir_path)
         if season:
             organize_season_raw_data_paths(season.group(1))
+    print("")
 
 
 def merge_csv(schema="main", season=NEWEST_SEASON):
@@ -186,18 +187,7 @@ def merge_csv(schema="main", season=NEWEST_SEASON):
                     if processed_row_dict != "Invalid":
                         csv_dict_writer.writerow(processed_row_dict)
 
-        print("Merge done!\n")
-
-
-def merge_csv_all_schemas(season="???S?"):
-    raw_dir_paths = glob.glob(f"{config['raw_data_path']}/lvr_landcsv_{season}")
-
-    for raw_dir_path in raw_dir_paths:
-        season = raw_dir_path[-5:]
-        print(f"Season: {season}\n")
-        for schema in config["schemas"]:
-            merged_dir_path = os.path.join(config["processed_data_path"], schema)
-            merge_csv(schema, season)
+    print("Merge done!\n")
 
 
 def process_date(date_str):
@@ -236,17 +226,21 @@ def save_invalid_data(schema, row_dict):
         writer.writerow(row)
 
 
-def process_data_row_dict(row_dict, schema, fields, season, raw_file_path):
+def process_data_row_dict(row_dict, src_file_path):
+    schema = src_file_path.split("_")[0]
+    season = src_file_path.split("_")[1]
+    fields = config["schemas"][schema]["fields"]
+
     for field in fields:
         if field == "季度":
             row_dict[field] = season.replace("S", "Q")
 
         elif field == "縣市":
-            code = raw_file_path.split("/")[-1][0]
+            code = src_file_path.split("_")[2]
             row_dict[field] = config["code_mappings"]["city"][code]
 
         elif field == "類別":
-            code = raw_file_path.split("_")[-2]
+            code = src_file_path.split(".")[0].split("_")[3]
             row_dict[field] = config["code_mappings"]["category"][code]
 
         elif field in [
@@ -272,9 +266,6 @@ def process_data_row_dict(row_dict, schema, fields, season, raw_file_path):
         elif field == "土地移轉面積平方公尺" and "土地移轉面積(平方公尺)" in row_dict:
             row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
 
-        elif field not in row_dict:
-            row_dict[field] = ""
-
     if len(row_dict) != len(fields):
         save_invalid_data(schema, row_dict)
         return "Invalid"
@@ -283,6 +274,7 @@ def process_data_row_dict(row_dict, schema, fields, season, raw_file_path):
 
 
 def rm_special_char(csv_path):
+    print("Removing special characters from", csv_path)
     rows = []
     ctrl_chars = "".join(chr(i) for i in range(0, 32) if i != 10)
     trans_tb = str.maketrans("", "", ctrl_chars)
@@ -336,7 +328,7 @@ def is_valid_datatype(string, datatype):
 
 
 def check_datatype(file_path):
-    print("Checking", file_path)
+    print("Checking", file_path, "datatype...")
     schema = file_path.split(".")[0].split("_")[-1]
     field_dict = config["schemas"][schema]["fields"]
 
@@ -358,21 +350,13 @@ def check_datatype(file_path):
         writer.writerows(row_dicts)
 
 
-def check_datatype_all():
-    file_paths = glob.glob(f"{config['data_path']}/merged/*.csv")
-    for file_path in file_paths:
-        check_datatype(file_path)
-
-
 def crawling(config_path):
     set_config(config_path)
 
     save_history_season_raw_data("112S4", "113S1")
     organize_season_raw_data_paths_all_season()
+    merge_csv()
     return
-    merge_csv_all_schemas()
-    process_invalid_date()
-    process_dirty_char()
     for file_to_remove in glob.glob(
         f"{config['processed_data_path']}/*/invalid_date_*.csv"
     ):
