@@ -117,7 +117,7 @@ def organize_season_raw_data_paths_all_season():
     print("")
 
 
-def merge_csv_2():
+def merge_csv():
     print("Merging csv files...\n")
     for schema in config["schemas"]:
         schema_dict = config["schemas"][schema]
@@ -131,50 +131,69 @@ def merge_csv_2():
             )
             print(merged_file_path, "...")
 
+            # Check if the merge file already exists and is non-empty
+            merged_file_exists = (
+                os.path.isfile(merged_file_path)
+                and os.path.getsize(merged_file_path) > 0
+            )
+
+            # If the merge file already exists, ask the user if they want to overwrite it
+            if merged_file_exists:
+                action = input(
+                    f"Merge file already exists. Overwrite it? (y/n): "
+                ).lower()
+
+                if action == "y" or "yes":
+                    os.remove(merged_file_path)
+                    merged_file_exists = False
+
+                elif action == "n" or "no":
+                    return
+
+                else:
+                    print("Invalid action.")
+                    return
+
             src_dir_path = os.path.join(merged_dir_path, season)
             for src_file_path in os.listdir(src_dir_path):
                 print("", "Merging", src_file_path, "...")
                 src_file_path = os.path.join(src_dir_path, src_file_path)
 
                 with open(merged_file_path, "a", newline="") as merged_file:
-                    csv_writer = csv.writer(merged_file)
-                    start_pos = merged_file.tell()
+                    csv_dict_writer = csv.DictWriter(
+                        merged_file, fieldnames=schema_dict["fields"]
+                    )
+
+                    if not merged_file_exists:
+                        csv_dict_writer.writeheader()
 
                     # Read the CSV file
                     with open(src_file_path, "r", newline="") as current_file:
-                        csv_reader = csv.reader(current_file, quotechar="\x07")
+
+                        # Remove Byte Order Mark ("\ufeff") if it exists
+                        first_line = current_file.readline()
+
+                        if first_line.startswith("\ufeff"):
+                            first_line = first_line.lstrip("\ufeff")
+                            current_file = [first_line] + current_file.readlines()
+
+                        else:
+                            current_file.seek(0)
+
+                        # Read the CSV file
+                        csv_dict_reader = csv.DictReader(current_file, quotechar="\x07")
+
+                        # Skip English header
+                        next(csv_dict_reader)
 
                         # Write the rows to the merge file
-                        for row_idx, row_dict in enumerate(csv_reader):
-                            if start_pos == 0:
-                                is_first_row = 1
-                                start_pos = 1
-                                schema = os.path.basename(src_file_path).split("_")[0]
-                                season = os.path.basename(src_file_path).split("_")[1]
-                                fields = config["schemas"][schema]["fields"]
+                        for row_idx, row_dict in enumerate(csv_dict_reader):
+                            processed_row_dict = process_data_row_dict(
+                                row_dict, os.path.basename(src_file_path)
+                            )
 
-                                for field in fields:
-                                    if field == "季度":
-                                        row_dict.insert(0, "季度")
-
-                                    elif field == "縣市":
-                                        code = src_file_path.split("_")[2]
-                                        row_dict.insert(1, "縣市")
-
-                                    elif field == "類別":
-                                        code = src_file_path.split(".")[0].split("_")[3]
-                                        row_dict.insert(2, "類別")
-
-                                csv_writer.writerow(row_dict)
-
-                            elif row_idx == 1:
-                                continue
-
-                            elif row_idx != 0:
-                                processed_row_dict = process_data_row_dict(
-                                    row_dict, os.path.basename(src_file_path)
-                                )
-                                csv_writer.writerow(processed_row_dict)
+                    if processed_row_dict != "Invalid":
+                        csv_dict_writer.writerow(processed_row_dict)
 
     print("Merge done!\n")
 
@@ -222,50 +241,44 @@ def process_data_row_dict(row_dict, src_file_path):
 
     for field in fields:
         if field == "季度":
-            row_dict.insert(0, season.replace("S", "Q"))
+            row_dict[field] = season.replace("S", "Q")
 
         elif field == "縣市":
             code = src_file_path.split("_")[2]
-            row_dict.insert(1, config["code_mappings"]["city"][code])
-            if "類別" not in row_dict:
-                return row_dict
+            row_dict[field] = config["code_mappings"]["city"][code]
 
         elif field == "類別":
             code = src_file_path.split(".")[0].split("_")[3]
-            row_dict.insert(2, config["code_mappings"]["category"][code])
-            return row_dict
+            row_dict[field] = config["code_mappings"]["category"][code]
+
+        elif field in [
+            "交易年月日",
+            "建築完成年月",
+            "建築完成日期",
+            "租賃年月日",
+        ]:
+            row_dict[field] = process_date(row_dict[field])
+
+        elif field == "租賃期間-起" and "租賃期間" in row_dict:
+            row_dict[field] = process_date(row_dict["租賃期間"].split("~")[0])
+
+        elif field == "租賃期間-迄" and "租賃期間" in row_dict:
+            row_dict[field] = process_date(row_dict["租賃期間"].split("~")[-1])
+            del row_dict["租賃期間"]
+
+        elif (
+            field == "車位移轉總面積平方公尺" and "車位移轉總面積(平方公尺)" in row_dict
+        ):
+            row_dict[field] = row_dict.pop("車位移轉總面積(平方公尺)")
+
+        elif field == "土地移轉面積平方公尺" and "土地移轉面積(平方公尺)" in row_dict:
+            row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
+
+    if len(row_dict) != len(fields):
+        save_invalid_data(schema, row_dict)
+        return "Invalid"
 
     return row_dict
-
-
-#         elif field in [
-#             "交易年月日",
-#             "建築完成年月",
-#             "建築完成日期",
-#             "租賃年月日",
-#         ]:
-#             row_dict[field] = process_date(row_dict[field])
-#
-#         elif field == "租賃期間-起" and "租賃期間" in row_dict:
-#             row_dict[field] = process_date(row_dict["租賃期間"].split("~")[0])
-#
-#         elif field == "租賃期間-迄" and "租賃期間" in row_dict:
-#             row_dict[field] = process_date(row_dict["租賃期間"].split("~")[-1])
-#             del row_dict["租賃期間"]
-#
-#         elif (
-#             field == "車位移轉總面積平方公尺" and "車位移轉總面積(平方公尺)" in row_dict
-#         ):
-#             row_dict[field] = row_dict.pop("車位移轉總面積(平方公尺)")
-#
-#         elif field == "土地移轉面積平方公尺" and "土地移轉面積(平方公尺)" in row_dict:
-#             row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
-#
-#     if len(row_dict) != len(fields):
-#         save_invalid_data(schema, row_dict)
-#         return "Invalid"
-#
-#     return row_dict
 
 
 def rm_special_char(csv_path):
@@ -348,10 +361,9 @@ def check_datatype(file_path):
 def crawling(config_path):
     set_config(config_path)
 
-    # save_season_raw_data()
-    # save_history_season_raw_data()
-    # organize_season_raw_data_paths_all_season()
-    merge_csv_2()
+    save_history_season_raw_data("112S4", "113S1")
+    organize_season_raw_data_paths_all_season()
+    merge_csv()
     return
     for file_to_remove in glob.glob(
         f"{config['processed_data_path']}/*/invalid_date_*.csv"
@@ -364,6 +376,3 @@ def crawling(config_path):
         os.remove(file_to_remove)
         print("Removed", file_to_remove)
     shutil.rmtree(config["raw_data_path"])
-
-
-crawling("lvr_land.json")
