@@ -8,7 +8,10 @@ import csv
 import re
 import sys
 import shutil
+import pandas as pd
 
+
+config = {}
 
 today = date.today()
 
@@ -21,14 +24,6 @@ elif today.month in [7, 8, 9]:
 else:  # today.month in [10, 11, 12]
     NEWEST_SEASON = f"{today.year - 1911}S3"
 
-config = {}
-
-
-def set_config(config_path):
-    with open(config_path, "r") as f:
-        global config
-        config = json.load(f)
-
 
 def save_season_raw_data(season=NEWEST_SEASON):
     url = config["url"] + season
@@ -37,29 +32,32 @@ def save_season_raw_data(season=NEWEST_SEASON):
     response = requests.get(url)
 
     if response.status_code == 200:
-        dir_path = os.path.join(config["data_path"], "raw")
-        os.makedirs(dir_path, exist_ok=True)
+        raw_dir_parent_path = config["raw_data_path"]
+        os.makedirs(raw_dir_parent_path, exist_ok=True)
 
         # Write the content of the response to the file
-        file_path = os.path.join(dir_path, f"lvr_landcsv_{season}")
-        with open(f"{file_path}.zip", "wb") as file:
+        with open(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "wb") as file:
             file.write(response.content)
         print(f"Downloaded lvr_landcsv_{season}.zip")
 
         # Unzip
-        with zipfile.ZipFile(f"{file_path}.zip", "r") as zip_ref:
-            zip_ref.extractall(file_path)
+        with zipfile.ZipFile(
+            f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "r"
+        ) as zip_ref:
+            zip_ref.extractall(f"{raw_dir_parent_path}/lvr_landcsv_{season}")
         print(f"Unzipped lvr_landcsv_{season}")
 
         # Delete the zip file
-        os.remove(f"{file_path}.zip")
-        print(f"Deleted lvr_landcsv_{season}.zip\n")
+        os.remove(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip")
+        print(f"Deleted lvr_landcsv_{season}.zip")
 
     else:
         print("Failed to download the file. Status code:", response.status_code)
 
 
 def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
+    raw_dir_parent_path = config["raw_data_path"]
+
     while int(start[-1]) <= 4:
         print(start)
         save_season_raw_data(start)
@@ -74,133 +72,159 @@ def save_history_season_raw_data(start="101S1", end=NEWEST_SEASON):
             save_season_raw_data(f"{year}S{season}")
 
 
-def organize_season_raw_data_paths(season=NEWEST_SEASON):
-    print(f"Organizing {season} files...")
-    dir_path = config["data_path"]
+def merge_csv(schema="main", season=NEWEST_SEASON):
+    raw_dir_path = f"{config['raw_data_path']}/lvr_landcsv_{season}"
+    merged_dir_path = os.path.join(config["processed_data_path"], schema)
+    os.makedirs(merged_dir_path, exist_ok=True)
+    schema_dict = config["schemas"][schema]
 
-    for schema in config["schemas"].keys():
-        for files in config["schemas"][schema]["files"]:
-            src_path_pattern = os.path.join(
-                dir_path, "raw", f"lvr_landcsv_{season}", files["pattern"]
-            )
-            src_paths = glob.glob(src_path_pattern)
-            dest_dir = os.path.join(dir_path, schema, season)
-            os.makedirs(dest_dir, exist_ok=True)
+    raw_file_paths = []
+    for schema_file in schema_dict["files"]:
+        raw_file_paths += glob.glob(os.path.join(raw_dir_path, schema_file["pattern"]))
 
-            for src_path in src_paths:
-                city = os.path.basename(src_path).split("_")[0]
-                category = (
-                    os.path.basename(src_path)
-                    .replace(".csv", "")
-                    .split("lvr_land_")[-1][0]
-                )
-                dest_path = os.path.join(
-                    dest_dir, f"{schema}_{season}_{city}_{category}.csv"
-                )
-                shutil.copy(src_path, dest_path)
+    season = raw_dir_path[-5:]  # yyySs
+    merged_file_path = f"{merged_dir_path}/lvr_land_{season}_{schema}.csv"
+    print(f"Merge {merged_file_path}...")
 
-    # shutil.rmtree(os.path.join(dir_path, f"lvr_landcsv_{season}"))
-    print("Done!")
+    # Check if the merge file already exists and is non-empty
+    merged_file_exists = (
+        os.path.isfile(merged_file_path) and os.path.getsize(merged_file_path) > 0
+    )
 
+    # If the merge file already exists, ask the user if they want to overwrite it
+    if merged_file_exists:
+        action = input(f"Merge file already exists. Overwrite it? (y/n): ").lower()
+        if action == "y" or "yes":
+            os.remove(merged_file_path)
+            merged_file_exists = False
+        elif action == "n" or "no":
+            return
+        else:
+            print("Invalid action.")
+            return
 
-def organize_season_raw_data_paths_all_season():
-    dir_paths = glob.glob(os.path.join(config["data_path"], "raw", "lvr_landcsv_???S?"))
+    # Create the merge file
+    with open(merged_file_path, "a", newline="") as merged_file:
+        csv_dict_writer = csv.DictWriter(merged_file, fieldnames=schema_dict["fields"])
+        csv_dict_writer.writeheader()
 
-    # Regular expression to match the pattern and capture the '???S?' part
-    regex = re.compile(r"lvr_landcsv_(\w{3}S\w)")
+        for path in raw_file_paths:
+            print("", path)
 
-    for dir_path in dir_paths:
-        dir_path = os.path.basename(dir_path)
-        season = regex.match(dir_path)
-        if season:
-            organize_season_raw_data_paths(season.group(1))
-    print("")
+            # Read the CSV file
+            with open(path, "r", newline="") as current_file:
 
+                # Remove Byte Order Mark ("\ufeff") if it exists
+                first_line = current_file.readline()
 
-def merge_csv():
-    print("Merging csv files...\n")
-    for schema in config["schemas"]:
-        schema_dict = config["schemas"][schema]
-        merged_dir_path = os.path.join(config["data_path"], schema)
-        print("Processing", merged_dir_path, "\n")
-        seasons = os.listdir(merged_dir_path)
-
-        for season in seasons:
-            merged_file_path = os.path.join(
-                merged_dir_path, f"lvr_land_{season}_{schema}.csv"
-            )
-            print(merged_file_path, "...")
-
-            # Check if the merge file already exists and is non-empty
-            merged_file_exists = (
-                os.path.isfile(merged_file_path)
-                and os.path.getsize(merged_file_path) > 0
-            )
-
-            # If the merge file already exists, ask the user if they want to overwrite it
-            if merged_file_exists:
-                action = input(
-                    f"Merge file already exists. Overwrite it? (y/n): "
-                ).lower()
-
-                if action == "y" or "yes":
-                    os.remove(merged_file_path)
-                    merged_file_exists = False
-
-                elif action == "n" or "no":
-                    return
+                if first_line.startswith("\ufeff"):
+                    first_line = first_line.lstrip("\ufeff")
+                    current_file = [first_line] + current_file.readlines()
 
                 else:
-                    print("Invalid action.")
-                    return
+                    current_file.seek(0)
 
-            src_dir_path = os.path.join(merged_dir_path, season)
-            for src_file_path in os.listdir(src_dir_path):
-                print("", "Merging", src_file_path, "...")
-                src_file_path = os.path.join(src_dir_path, src_file_path)
+                # Read the CSV file
+                csv_dict_reader = csv.DictReader(current_file, quotechar="\x07")
 
-                with open(merged_file_path, "a", newline="") as merged_file:
-                    csv_dict_writer = csv.DictWriter(
-                        merged_file, fieldnames=schema_dict["fields"]
+                # Skip English header
+                next(csv_dict_reader)
+
+                # Write the rows to the merge file
+                for row_idx, row_dict in enumerate(csv_dict_reader):
+                    processed_row_dict, error = process_data_row_dict(
+                        row_dict, schema_dict["fields"], season, path
                     )
 
-                    if not merged_file_exists:
-                        csv_dict_writer.writeheader()
-
-                    # Read the CSV file
-                    with open(src_file_path, "r", newline="") as current_file:
-
-                        # Remove Byte Order Mark ("\ufeff") if it exists
-                        first_line = current_file.readline()
-
-                        if first_line.startswith("\ufeff"):
-                            first_line = first_line.lstrip("\ufeff")
-                            current_file = [first_line] + current_file.readlines()
-
-                        else:
-                            current_file.seek(0)
-
-                        # Read the CSV file
-                        csv_dict_reader = csv.DictReader(current_file, quotechar="\x07")
-
-                        # Skip English header
-                        next(csv_dict_reader)
-
-                        # Write the rows to the merge file
-                        for row_idx, row_dict in enumerate(csv_dict_reader):
-                            processed_row_dict = process_data_row_dict(
-                                row_dict, os.path.basename(src_file_path)
-                            )
-
-                    if processed_row_dict != "Invalid":
+                    if error is None:
                         csv_dict_writer.writerow(processed_row_dict)
 
-    print("Merge done!\n")
+                    else:
+                        if error == "Invalid number of columns":
+                            print("  Invalid number of columns on row:", row_idx + 3)
+
+                            invalid_row_path = (
+                                f"{merged_dir_path}/invalid_num_cols_{schema}.csv"
+                            )
+
+                            # Write the row to file
+                            with open(invalid_row_path, "a", newline="") as file:
+                                csv_writer = csv.writer(file)
+
+                                # Write the header if the file is new
+                                if file.tell() == 0:
+                                    csv_writer.writerow(schema_dict["fields"])
+
+                                row = []
+                                for field in schema_dict["fields"]:
+                                    if field in ["季度", "縣市", "類別"]:
+                                        row.append(row_dict[field])
+
+                                    else:
+                                        row += (
+                                            current_file[row_idx + 2]
+                                            .replace("\r\n", "")
+                                            .split(",")
+                                        )
+                                        csv_writer.writerow(row)
+                                        break
+
+                        elif error == "Invalid date":
+                            print("  Invalid date on row:", row_idx + 3)
+
+                            invalid_row_path = (
+                                f"{merged_dir_path}/invalid_date_{schema}.csv"
+                            )
+
+                            with open(invalid_row_path, "a", newline="") as file:
+                                csv_writer = csv.DictWriter(
+                                    file, fieldnames=schema_dict["fields"]
+                                )
+
+                                if file.tell() == 0:
+                                    csv_writer.writeheader()
+
+                                csv_writer.writerow(processed_row_dict)
+
+                        elif error == "Dirty char":
+                            print("  Dirty char on row:", row_idx + 3)
+
+                            invalid_row_path = (
+                                f"{merged_dir_path}/dirty_char_{schema}.csv"
+                            )
+
+                            with open(invalid_row_path, "a", newline="") as file:
+                                csv_writer = csv.DictWriter(
+                                    file, fieldnames=schema_dict["fields"]
+                                )
+
+                                if file.tell() == 0:
+                                    csv_writer.writeheader()
+
+                                csv_writer.writerow(processed_row_dict)
+
+                        print(f"   Saved in {invalid_row_path}")
+
+        print("Merge done!\n")
+
+
+def merge_csv_all_schemas(season="???S?"):
+    raw_dir_paths = glob.glob(f"{config['raw_data_path']}/lvr_landcsv_{season}")
+
+    for raw_dir_path in raw_dir_paths:
+        season = raw_dir_path[-5:]
+        print(f"Season: {season}\n")
+        for schema in config["schemas"]:
+            merged_dir_path = os.path.join(config["processed_data_path"], schema)
+            merge_csv(schema, season)
 
 
 def process_date(date_str):
-    if date_str in ("", None):
-        return date_str
+    if date_str is None:
+        return None
+
+    elif date_str == "":
+        return ""
 
     match = re.findall(r"(\d+)年(\d+)月(\d+)日", date_str)
 
@@ -217,38 +241,33 @@ def process_date(date_str):
         date_str = f"{int(year)+1911}-{month}-{day}"
 
     try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
-
+        # Try to create a datetime object from the string
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return date_str
     except ValueError:
-        return ""
+        # If a ValueError is raised, the date is invalid
+        return "Invalid date"
 
 
-def save_invalid_data(schema, row_dict):
-    dir_path = os.path.join(config["data_path"], "invalid_data")
-    os.makedirs(dir_path, exist_ok=True)
-    file_path = os.path.join(dir_path, f"invalid_data_{schema}.csv")
+def process_data_row_dict(row_dict, fields, season, raw_file_path):
+    error = None
 
-    row = [row_dict[field] for field in row_dict.keys()]
-    with open(file_path, "a") as f:
-        writer = csv.writer(f)
-        writer.writerow(row)
-
-
-def process_data_row_dict(row_dict, src_file_path):
-    schema = src_file_path.split("_")[0]
-    season = src_file_path.split("_")[1]
-    fields = config["schemas"][schema]["fields"]
+    for value in row_dict.values():
+        if value is not None and any(
+            dirty_char in value for dirty_char in ['"', "'", "\\"]
+        ):
+            error = "Dirty char"
 
     for field in fields:
         if field == "季度":
             row_dict[field] = season.replace("S", "Q")
 
         elif field == "縣市":
-            code = src_file_path.split("_")[2]
+            code = raw_file_path.split("/")[-1][0]
             row_dict[field] = config["code_mappings"]["city"][code]
 
         elif field == "類別":
-            code = src_file_path.split(".")[0].split("_")[3]
+            code = raw_file_path.split("_")[-2]
             row_dict[field] = config["code_mappings"]["category"][code]
 
         elif field in [
@@ -257,7 +276,13 @@ def process_data_row_dict(row_dict, src_file_path):
             "建築完成日期",
             "租賃年月日",
         ]:
-            row_dict[field] = process_date(row_dict[field])
+            processed_date = process_date(row_dict[field])
+
+            if processed_date == "Invalid date":
+                error = "Invalid date"
+
+            else:
+                row_dict[field] = processed_date
 
         elif field == "租賃期間-起" and "租賃期間" in row_dict:
             row_dict[field] = process_date(row_dict["租賃期間"].split("~")[0])
@@ -274,105 +299,120 @@ def process_data_row_dict(row_dict, src_file_path):
         elif field == "土地移轉面積平方公尺" and "土地移轉面積(平方公尺)" in row_dict:
             row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
 
+        elif field not in row_dict:
+            row_dict[field] = ""
+
     if len(row_dict) != len(fields):
-        save_invalid_data(schema, row_dict)
-        return "Invalid"
+        error = "Invalid number of columns"
 
-    return row_dict
-
-
-def rm_special_char(csv_path):
-    print("Removing special characters from", csv_path)
-    rows = []
-    ctrl_chars = "".join(chr(i) for i in range(0, 32) if i != 10)
-    trans_tb = str.maketrans("", "", ctrl_chars)
-
-    with open(csv_path, mode="r", encoding="utf-8", newline="") as file:
-        reader = csv.reader(file)
-
-        for row in reader:
-            # Remove control characters
-            row = [cell.translate(trans_tb) for cell in row]
-
-            # Replace "\," with ","
-            row = [cell[:-1] if cell.endswith("\\") else cell for cell in row]
-            rows.append(row)
-
-    # Write the cleaned data back to the CSV file
-    with open(csv_path, mode="w", encoding="utf-8", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerows(rows)
+    return row_dict, error
 
 
-def is_valid_datatype(string, datatype):
-    if string in ("", None):
-        return True
+def process_invalid_date():
+    paths = glob.glob(f"{config['processed_data_path']}/*/invalid_date_*.csv")
 
-    elif datatype == "string":
-        return True
+    for path in paths:
+        schema = path.replace(".csv", "").split("_")[-1]
+        fields = config["schemas"][schema]["fields"]
 
-    elif datatype == "bool":
-        if string in ("有", "無"):
-            return True
-        return False
-
-    try:
-        if datatype == "int":
-            int(string)
-            return True
-
-        elif datatype == "float":
-            float(string)
-            return True
-
-        elif datatype == "date":
-            datetime.strptime(string, "%Y-%m-%d")
-            return True
-
-        return False
-
-    except ValueError:
-        return False
-
-
-def check_datatype(file_path):
-    print("Checking", file_path, "datatype...")
-    schema = file_path.split(".")[0].split("_")[-1]
-    field_dict = config["schemas"][schema]["fields"]
-
-    with open(file_path) as f:
-        reader = csv.DictReader(f)
         row_dicts = []
+        with open(path, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                for field in fields:
+                    if field in [
+                        "交易年月日",
+                        "建築完成年月",
+                        "建築完成日期",
+                        "租賃年月日",
+                        "租賃期間-起",
+                        "租賃期間-迄",
+                    ]:
+                        try:
+                            datetime.strptime(row[field], "%Y-%m-%d")
+                        except ValueError:
+                            row[field] = ""
 
-        for row_dict in reader:
-            for field in field_dict:
-                datatype = field_dict[field]
-                if not is_valid_datatype(row_dict[field], datatype):
-                    save_invalid_data(schema, row_dict)
-                    break
-            row_dicts.append(row_dict)
+                row_dicts.append(row)
 
-    with open(file_path, "w") as f:
-        writer = csv.DictWriter(f, fieldnames=field_dict.keys())
-        writer.writeheader()
-        writer.writerows(row_dicts)
+        with open(
+            "/".join(path.split("/")[:-1]) + f"/rm_invalid_date_{schema}.csv", "w"
+        ) as f:
+            writer = csv.DictWriter(f, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(row_dicts)
+
+        print("Processed", path)
+
+
+def process_dirty_char():
+    paths = glob.glob(f"{config['processed_data_path']}/*/dirty_char_*.csv")
+
+    for path in paths:
+        schema = path.replace(".csv", "").split("_")[-1]
+        fields = config["schemas"][schema]["fields"]
+
+        rows = []
+        with open(path, "r") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                row = [cell[:-1] if cell.endswith("\\") else cell for cell in row]
+                rows.append(row)
+
+        with open(
+            "/".join(path.split("/")[:-1]) + f"/rm_dirty_char_{schema}.csv", "w"
+        ) as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)
+
+        print("Processed", path)
+
+
+def process_main(dir_path):
+    paths = glob.glob(f"{dir_path}/*.csv")
+
+    for path in paths:
+        df = pd.read_csv(path)
+
+        df["土地移轉總面積坪"] = df["土地移轉總面積平方公尺"] * 0.3025
+        df["建物移轉總面積坪"] = df["建物移轉總面積平方公尺"] * 0.3025
+        df["車位移轉總面積坪"] = df["車位移轉總面積平方公尺"] * 0.3025
+        df["單價元坪"] = df["單價元平方公尺"] * 0.3025
+
+        df = df.drop(
+            columns=[
+                "土地移轉總面積平方公尺",
+                "建物移轉總面積平方公尺",
+                "車位移轉總面積平方公尺",
+                "單價元平方公尺",
+            ]
+        )
+        df.to_csv(path, index=False)
 
 
 def crawling(config_path):
-    set_config(config_path)
+    try:
+        with open(config_path, "r") as f:
+            global config
+            config = json.load(f)
 
-    save_history_season_raw_data("112S4", "113S1")
-    organize_season_raw_data_paths_all_season()
-    merge_csv()
-    return
-    for file_to_remove in glob.glob(
-        f"{config['processed_data_path']}/*/invalid_date_*.csv"
-    ):
-        os.remove(file_to_remove)
-        print("Removed", file_to_remove)
-    for file_to_remove in glob.glob(
-        f"{config['processed_data_path']}/*/dirty_char_*.csv"
-    ):
-        os.remove(file_to_remove)
-        print("Removed", file_to_remove)
-    shutil.rmtree(config["raw_data_path"])
+        save_season_raw_data()
+        merge_csv_all_schemas()
+        process_invalid_date()
+        process_dirty_char()
+        for file_to_remove in glob.glob(
+            f"{config['processed_data_path']}/*/invalid_date_*.csv"
+        ):
+            os.remove(file_to_remove)
+            print("Removed", file_to_remove)
+        for file_to_remove in glob.glob(
+            f"{config['processed_data_path']}/*/dirty_char_*.csv"
+        ):
+            os.remove(file_to_remove)
+            print("Removed", file_to_remove)
+        shutil.rmtree(config["raw_data_path"])
+
+        process_main(os.path.join(config["processed_data_path"], "main"))
+
+    except Exception as e:
+        raise AirflowFailException(e)
