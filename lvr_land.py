@@ -76,18 +76,18 @@ class ETL_lvr_land:
         if end is None:
             end = self.newest_season
 
-        raw_dir_parent_path = self.config["raw_data_dir_path"]
-
         while int(start[-1]) <= 4:
             print(start)
             self.save_season_raw_data(start)
             start = start[:-1] + str(int(start[-1]) + 1)
+
         start = str(int(start[:3]) + 1) + "S1"
 
         for year in range(int(start[:3]), int(end[:3]) + 1):
             for season in range(1, 5):
                 if f"{year}S{season}" > end:
                     break
+
                 print(f"{year}S{season}")
                 self.save_season_raw_data(f"{year}S{season}")
 
@@ -95,37 +95,24 @@ class ETL_lvr_land:
         if season is None:
             season = self.newest_season
 
-        raw_dir_path = f"{self.config['raw_data_dir_path']}/lvr_landcsv_{season}"
-        merged_dir_path = os.path.join(self.config["processed_data_dir_path"], schema)
+        raw_data_dir_path = os.path.join(
+            self.raw_data_dir_path, f"lvr_landcsv_{season}"
+        )
+        merged_dir_path = os.path.join(self.processed_data_dir_path, schema)
         os.makedirs(merged_dir_path, exist_ok=True)
         schema_dict = self.config["schemas"][schema]
 
         raw_file_paths = []
         for schema_file in schema_dict["files"]:
             raw_file_paths += glob.glob(
-                os.path.join(raw_dir_path, schema_file["pattern"])
+                os.path.join(raw_data_dir_path, schema_file["pattern"])
             )
 
-        season = raw_dir_path[-5:]  # yyySs
-        merged_file_path = f"{merged_dir_path}/lvr_land_{season}_{schema}.csv"
-        print(f"Merge {merged_file_path}...")
-
-        # Check if the merge file already exists and is non-empty
-        merged_file_exists = (
-            os.path.isfile(merged_file_path) and os.path.getsize(merged_file_path) > 0
+        season = raw_data_dir_path[-5:]  # yyySs
+        merged_file_path = os.path.join(
+            merged_dir_path, f"{self.prefix}_{season}_{schema}.csv"
         )
-
-        # If the merge file already exists, ask the user if they want to overwrite it
-        if merged_file_exists:
-            action = input(f"Merge file already exists. Overwrite it? (y/n): ").lower()
-            if action == "y" or "yes":
-                os.remove(merged_file_path)
-                merged_file_exists = False
-            elif action == "n" or "no":
-                return
-            else:
-                print("Invalid action.")
-                return
+        print(f"Merge {merged_file_path}...")
 
         # Create the merge file
         with open(merged_file_path, "a", newline="") as merged_file:
@@ -237,7 +224,7 @@ class ETL_lvr_land:
 
     def merge_csv_all_schemas(self, season="???S?"):
         raw_dir_paths = glob.glob(
-            f"{self.config['raw_data_dir_path']}/lvr_landcsv_{season}"
+            os.path.join(self.raw_data_dir_path, f"lvr_landcsv_{season}")
         )
 
         for raw_dir_path in raw_dir_paths:
