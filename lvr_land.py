@@ -17,6 +17,9 @@ class ETL_lvr_land:
     def __init__(self, config_path):
         self.config = self.get_config(config_path)
         self.newest_season = self.get_newest_season()
+        self.raw_data_dir_path = self.config["raw_data_dir_path"]
+        self.processed_data_dir_path = self.config["processed_data_dir_path"]
+        self.prefix = "lvr_land"
 
     def get_config(self, config_path):
         with open(config_path) as file:
@@ -44,24 +47,27 @@ class ETL_lvr_land:
         response = requests.get(url)
 
         if response.status_code == 200:
-            raw_dir_parent_path = self.config["raw_data_path"]
-            os.makedirs(raw_dir_parent_path, exist_ok=True)
+            os.makedirs(self.raw_data_dir_path, exist_ok=True)
 
-            # Write the content of the response to the file
-            with open(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "wb") as file:
+            # Save the zip file
+            zip_path = os.path.join(self.raw_data_dir_path, f"lvr_landcsv_{season}.zip")
+
+            with open(zip_path, "wb") as file:
                 file.write(response.content)
-            print(f"Downloaded lvr_landcsv_{season}.zip")
+
+            print(f"Downloaded:", zip_path)
 
             # Unzip
-            with zipfile.ZipFile(
-                f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip", "r"
-            ) as zip_ref:
-                zip_ref.extractall(f"{raw_dir_parent_path}/lvr_landcsv_{season}")
-            print(f"Unzipped lvr_landcsv_{season}")
+            data_package_path = zip_path.replace(".zip", "")
+
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                zip_ref.extractall(data_package_path)
+
+            print(f"Unzipped:", data_package_path)
 
             # Delete the zip file
-            os.remove(f"{raw_dir_parent_path}/lvr_landcsv_{season}.zip")
-            print(f"Deleted lvr_landcsv_{season}.zip")
+            os.remove(zip_path)
+            print(f"Deleted:", zip_path)
 
         else:
             print("Failed to download the file. Status code:", response.status_code)
@@ -70,7 +76,7 @@ class ETL_lvr_land:
         if end is None:
             end = self.newest_season
 
-        raw_dir_parent_path = self.config["raw_data_path"]
+        raw_dir_parent_path = self.config["raw_data_dir_path"]
 
         while int(start[-1]) <= 4:
             print(start)
@@ -89,8 +95,8 @@ class ETL_lvr_land:
         if season is None:
             season = self.newest_season
 
-        raw_dir_path = f"{self.config['raw_data_path']}/lvr_landcsv_{season}"
-        merged_dir_path = os.path.join(self.config["processed_data_path"], schema)
+        raw_dir_path = f"{self.config['raw_data_dir_path']}/lvr_landcsv_{season}"
+        merged_dir_path = os.path.join(self.config["processed_data_dir_path"], schema)
         os.makedirs(merged_dir_path, exist_ok=True)
         schema_dict = self.config["schemas"][schema]
 
@@ -231,7 +237,7 @@ class ETL_lvr_land:
 
     def merge_csv_all_schemas(self, season="???S?"):
         raw_dir_paths = glob.glob(
-            f"{self.config['raw_data_path']}/lvr_landcsv_{season}"
+            f"{self.config['raw_data_dir_path']}/lvr_landcsv_{season}"
         )
 
         for raw_dir_path in raw_dir_paths:
@@ -239,7 +245,7 @@ class ETL_lvr_land:
             print(f"Season: {season}\n")
             for schema in self.config["schemas"]:
                 merged_dir_path = os.path.join(
-                    self.config["processed_data_path"], schema
+                    self.config["processed_data_dir_path"], schema
                 )
                 self.merge_csv(schema, season)
 
@@ -334,7 +340,9 @@ class ETL_lvr_land:
         return row_dict, error
 
     def process_invalid_date(self):
-        paths = glob.glob(f"{self.config['processed_data_path']}/*/invalid_date_*.csv")
+        paths = glob.glob(
+            f"{self.config['processed_data_dir_path']}/*/invalid_date_*.csv"
+        )
 
         for path in paths:
             schema = path.replace(".csv", "").split("_")[-1]
@@ -370,7 +378,9 @@ class ETL_lvr_land:
             print("Processed", path)
 
     def process_dirty_char(self):
-        paths = glob.glob(f"{self.config['processed_data_path']}/*/dirty_char_*.csv")
+        paths = glob.glob(
+            f"{self.config['processed_data_dir_path']}/*/dirty_char_*.csv"
+        )
 
         for path in paths:
             schema = path.replace(".csv", "").split("_")[-1]
@@ -419,18 +429,20 @@ class ETL_lvr_land:
             self.process_invalid_date()
             self.process_dirty_char()
             for file_to_remove in glob.glob(
-                f"{self.config['processed_data_path']}/*/invalid_date_*.csv"
+                f"{self.config['processed_data_dir_path']}/*/invalid_date_*.csv"
             ):
                 os.remove(file_to_remove)
                 print("Removed", file_to_remove)
             for file_to_remove in glob.glob(
-                f"{self.config['processed_data_path']}/*/dirty_char_*.csv"
+                f"{self.config['processed_data_dir_path']}/*/dirty_char_*.csv"
             ):
                 os.remove(file_to_remove)
                 print("Removed", file_to_remove)
-            shutil.rmtree(self.config["raw_data_path"])
+            shutil.rmtree(self.config["raw_data_dir_path"])
 
-            self.process_main(os.path.join(self.config["processed_data_path"], "main"))
+            self.process_main(
+                os.path.join(self.config["processed_data_dir_path"], "main")
+            )
 
         except Exception as e:
             raise  ### AirflowFailException(e)
