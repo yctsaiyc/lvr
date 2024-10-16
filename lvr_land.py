@@ -114,113 +114,88 @@ class ETL_lvr_land:
         )
         print(f"Merge {merged_file_path}...")
 
+        df = pd.DataFrame(columns=schema_dict["fields"])
+
         # Create the merge file
-        with open(merged_file_path, "a", newline="") as merged_file:
-            csv_dict_writer = csv.DictWriter(
-                merged_file, fieldnames=schema_dict["fields"]
-            )
-            csv_dict_writer.writeheader()
+        for path in raw_file_paths:
+            print("", path)
+            df = pd.concat([df, pd.read_csv(path, skiprows=[1])], ignore_index=True)
 
-            for path in raw_file_paths:
-                print("", path)
+        df.to_csv(merged_file_path, index=False)
+        exit()
 
-                # Read the CSV file
-                with open(path, "r", newline="") as current_file:
+        # if error is None:
+        #     csv_dict_writer.writerow(processed_row_dict)
+        #
+        # else:
+        #     if error == "Invalid number of columns":
+        #         print(
+        #             "  Invalid number of columns on row:", row_idx + 3
+        #         )
+        #
+        #         invalid_row_path = (
+        #             f"{merged_dir_path}/invalid_num_cols_{schema}.csv"
+        #         )
+        #
+        #         # Write the row to file
+        #         with open(invalid_row_path, "a", newline="") as file:
+        #             csv_writer = csv.writer(file)
+        #
+        #             # Write the header if the file is new
+        #             if file.tell() == 0:
+        #                 csv_writer.writerow(schema_dict["fields"])
+        #
+        #             row = []
+        #             for field in schema_dict["fields"]:
+        #                 if field in ["季度", "縣市", "類別"]:
+        #                     row.append(row_dict[field])
+        #
+        #                 else:
+        #                     row += (
+        #                         current_file[row_idx + 2]
+        #                         .replace("\r\n", "")
+        #                         .split(",")
+        #                     )
+        #                     csv_writer.writerow(row)
+        #                     break
+        #
+        #     elif error == "Invalid date":
+        #         print("  Invalid date on row:", row_idx + 3)
+        #
+        #         invalid_row_path = (
+        #             f"{merged_dir_path}/invalid_date_{schema}.csv"
+        #         )
+        #
+        #         with open(invalid_row_path, "a", newline="") as file:
+        #             csv_writer = csv.DictWriter(
+        #                 file, fieldnames=schema_dict["fields"]
+        #             )
+        #
+        #             if file.tell() == 0:
+        #                 csv_writer.writeheader()
+        #
+        #             csv_writer.writerow(processed_row_dict)
+        #
+        #     elif error == "Dirty char":
+        #         print("  Dirty char on row:", row_idx + 3)
+        #
+        #         invalid_row_path = (
+        #             f"{merged_dir_path}/dirty_char_{schema}.csv"
+        #         )
+        #
+        #         with open(invalid_row_path, "a", newline="") as file:
+        #             csv_writer = csv.DictWriter(
+        #                 file, fieldnames=schema_dict["fields"]
+        #             )
+        #
+        #             if file.tell() == 0:
+        #                 csv_writer.writeheader()
+        #
+        #             csv_writer.writerow(processed_row_dict)
+        #
+        #     print(f"   Saved in {invalid_row_path}")
 
-                    # Remove Byte Order Mark ("\ufeff") if it exists
-                    first_line = current_file.readline()
-
-                    if first_line.startswith("\ufeff"):
-                        first_line = first_line.lstrip("\ufeff")
-                        current_file = [first_line] + current_file.readlines()
-
-                    else:
-                        current_file.seek(0)
-
-                    # Read the CSV file
-                    csv_dict_reader = csv.DictReader(current_file, quotechar="\x07")
-
-                    # Skip English header
-                    next(csv_dict_reader)
-
-                    # Write the rows to the merge file
-                    for row_idx, row_dict in enumerate(csv_dict_reader):
-                        processed_row_dict, error = self.process_data_row_dict(
-                            row_dict, schema_dict["fields"], season, path
-                        )
-
-                        if error is None:
-                            csv_dict_writer.writerow(processed_row_dict)
-
-                        else:
-                            if error == "Invalid number of columns":
-                                print(
-                                    "  Invalid number of columns on row:", row_idx + 3
-                                )
-
-                                invalid_row_path = (
-                                    f"{merged_dir_path}/invalid_num_cols_{schema}.csv"
-                                )
-
-                                # Write the row to file
-                                with open(invalid_row_path, "a", newline="") as file:
-                                    csv_writer = csv.writer(file)
-
-                                    # Write the header if the file is new
-                                    if file.tell() == 0:
-                                        csv_writer.writerow(schema_dict["fields"])
-
-                                    row = []
-                                    for field in schema_dict["fields"]:
-                                        if field in ["季度", "縣市", "類別"]:
-                                            row.append(row_dict[field])
-
-                                        else:
-                                            row += (
-                                                current_file[row_idx + 2]
-                                                .replace("\r\n", "")
-                                                .split(",")
-                                            )
-                                            csv_writer.writerow(row)
-                                            break
-
-                            elif error == "Invalid date":
-                                print("  Invalid date on row:", row_idx + 3)
-
-                                invalid_row_path = (
-                                    f"{merged_dir_path}/invalid_date_{schema}.csv"
-                                )
-
-                                with open(invalid_row_path, "a", newline="") as file:
-                                    csv_writer = csv.DictWriter(
-                                        file, fieldnames=schema_dict["fields"]
-                                    )
-
-                                    if file.tell() == 0:
-                                        csv_writer.writeheader()
-
-                                    csv_writer.writerow(processed_row_dict)
-
-                            elif error == "Dirty char":
-                                print("  Dirty char on row:", row_idx + 3)
-
-                                invalid_row_path = (
-                                    f"{merged_dir_path}/dirty_char_{schema}.csv"
-                                )
-
-                                with open(invalid_row_path, "a", newline="") as file:
-                                    csv_writer = csv.DictWriter(
-                                        file, fieldnames=schema_dict["fields"]
-                                    )
-
-                                    if file.tell() == 0:
-                                        csv_writer.writeheader()
-
-                                    csv_writer.writerow(processed_row_dict)
-
-                            print(f"   Saved in {invalid_row_path}")
-
-            print("Merge done!\n")
+        print("Merge done!\n")
 
     def merge_csv_all_schemas(self, season="???S?"):
         raw_dir_paths = glob.glob(
@@ -230,10 +205,8 @@ class ETL_lvr_land:
         for raw_dir_path in raw_dir_paths:
             season = raw_dir_path[-5:]
             print(f"Season: {season}\n")
+
             for schema in self.config["schemas"]:
-                merged_dir_path = os.path.join(
-                    self.config["processed_data_dir_path"], schema
-                )
                 self.merge_csv(schema, season)
 
     def process_date(self, date_str):
@@ -411,25 +384,29 @@ class ETL_lvr_land:
 
     def crawling(self):
         try:
-            self.save_season_raw_data()
-            self.merge_csv_all_schemas()
-            self.process_invalid_date()
-            self.process_dirty_char()
-            for file_to_remove in glob.glob(
-                f"{self.config['processed_data_dir_path']}/*/invalid_date_*.csv"
-            ):
-                os.remove(file_to_remove)
-                print("Removed", file_to_remove)
-            for file_to_remove in glob.glob(
-                f"{self.config['processed_data_dir_path']}/*/dirty_char_*.csv"
-            ):
-                os.remove(file_to_remove)
-                print("Removed", file_to_remove)
-            shutil.rmtree(self.config["raw_data_dir_path"])
+            # 1. 存原始資料csv
+            # self.save_season_raw_data()
 
-            self.process_main(
-                os.path.join(self.config["processed_data_dir_path"], "main")
-            )
+            # 2. 將不同縣市資料依schema合併
+            self.merge_csv_all_schemas()
+
+            # self.process_invalid_date()
+            # self.process_dirty_char()
+            # for file_to_remove in glob.glob(
+            #     f"{self.config['processed_data_dir_path']}/*/invalid_date_*.csv"
+            # ):
+            #     os.remove(file_to_remove)
+            #     print("Removed", file_to_remove)
+            # for file_to_remove in glob.glob(
+            #     f"{self.config['processed_data_dir_path']}/*/dirty_char_*.csv"
+            # ):
+            #     os.remove(file_to_remove)
+            #     print("Removed", file_to_remove)
+            # shutil.rmtree(self.config["raw_data_dir_path"])
+
+            # self.process_main(
+            #     os.path.join(self.config["processed_data_dir_path"], "main")
+            # )
 
         except Exception as e:
             raise  ### AirflowFailException(e)
