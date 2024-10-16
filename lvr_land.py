@@ -124,10 +124,12 @@ class ETL_lvr_land:
         df.to_csv(merged_file_path, index=False)
         exit()
 
+        # # 1. 若無錯誤則直接寫入
         # if error is None:
         #     csv_dict_writer.writerow(processed_row_dict)
         #
         # else:
+        #     # 2.欄位數錯誤 
         #     if error == "Invalid number of columns":
         #         print(
         #             "  Invalid number of columns on row:", row_idx + 3
@@ -159,6 +161,7 @@ class ETL_lvr_land:
         #                     csv_writer.writerow(row)
         #                     break
         #
+        #     # 3. 日期錯誤
         #     elif error == "Invalid date":
         #         print("  Invalid date on row:", row_idx + 3)
         #
@@ -176,6 +179,7 @@ class ETL_lvr_land:
         #
         #             csv_writer.writerow(processed_row_dict)
         #
+        #     # 4. 特殊字元
         #     elif error == "Dirty char":
         #         print("  Dirty char on row:", row_idx + 3)
         #
@@ -238,9 +242,8 @@ class ETL_lvr_land:
             # If a ValueError is raised, the date is invalid
             return "Invalid date"
 
-    def process_data_row_dict(self, row_dict, fields, season, raw_file_path):
-        error = None
-
+    def process_df(self, df, season, raw_file_path):
+        # 1. 檢查特殊字元
         for value in row_dict.values():
             if value is not None and any(
                 dirty_char in value for dirty_char in ['"', "'", "\\"]
@@ -248,6 +251,7 @@ class ETL_lvr_land:
                 error = "Dirty char"
 
         for field in fields:
+            # 2. 填入季度、縣市、類別
             if field == "季度":
                 row_dict[field] = season.replace("S", "Q")
 
@@ -259,6 +263,7 @@ class ETL_lvr_land:
                 code = raw_file_path.split("_")[-2]
                 row_dict[field] = self.config["code_mappings"]["category"][code]
 
+            # 3. 處理日期
             elif field in [
                 "交易年月日",
                 "建築完成年月",
@@ -273,6 +278,7 @@ class ETL_lvr_land:
                 else:
                     row_dict[field] = processed_date
 
+            # 4. 分離租賃期間
             elif field == "租賃期間-起" and "租賃期間" in row_dict:
                 row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[0])
 
@@ -280,6 +286,7 @@ class ETL_lvr_land:
                 row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[-1])
                 del row_dict["租賃期間"]
 
+            # 5. 處理欄位名稱
             elif (
                 field == "車位移轉總面積平方公尺"
                 and "車位移轉總面積(平方公尺)" in row_dict
@@ -291,9 +298,11 @@ class ETL_lvr_land:
             ):
                 row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
 
+            # 6. 若欄位不存在，填入空字串
             elif field not in row_dict:
                 row_dict[field] = ""
 
+        # 7. 檢查欄位數 (若值有","，會被視為欄位分離符號)
         if len(row_dict) != len(fields):
             error = "Invalid number of columns"
 
