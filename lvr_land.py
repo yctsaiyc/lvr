@@ -260,23 +260,28 @@ class ETL_lvr_land:
 
         return df
 
+    def fill_info(self, df, season, raw_file_path):
+        df["季度"] = season.replace("S", "Q")
+
+        code = raw_file_path.split("/")[-1][0]
+        df["縣市"] = self.config["code_mappings"]["city"][code]
+
+        if "類別" in df.columns:
+            code = raw_file_path.split("_")[-2]
+            df["類別"] = self.config["code_mappings"]["category"][code]
+
+        return df
+
     def process_df(self, df, season, raw_file_path):
         # 1. 檢查特殊字元
         df = self.process_special_chars(df)
 
+        # 2. 填入季度、縣市、類別
+        df = self.fill_info(df, season, raw_file_path)
+
+        return df
+
         # for field in fields:
-        #     # 2. 填入季度、縣市、類別
-        #     if field == "季度":
-        #         row_dict[field] = season.replace("S", "Q")
-
-        #     elif field == "縣市":
-        #         code = raw_file_path.split("/")[-1][0]
-        #         row_dict[field] = self.config["code_mappings"]["city"][code]
-
-        #     elif field == "類別":
-        #         code = raw_file_path.split("_")[-2]
-        #         row_dict[field] = self.config["code_mappings"]["category"][code]
-
         #     # 3. 處理日期
         #     elif field in [
         #         "交易年月日",
