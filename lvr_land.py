@@ -247,8 +247,7 @@ class ETL_lvr_land:
             # If a ValueError is raised, the date is invalid
             return "Invalid date"
 
-    def process_df(self, df, season, raw_file_path):
-        # 1. 檢查特殊字元
+    def process_special_chars(self, df):
         special_chars = ['"', "'", "\\"]
 
         for idx, row in df.iterrows():
@@ -260,6 +259,10 @@ class ETL_lvr_land:
                             df.at[idx, "原始資料"] += f"{col}：{row[col]}。"
 
         return df
+
+    def process_df(self, df, season, raw_file_path):
+        # 1. 檢查特殊字元
+        df = self.process_special_chars(df)
 
         # for field in fields:
         #     # 2. 填入季度、縣市、類別
