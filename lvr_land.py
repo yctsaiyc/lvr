@@ -121,7 +121,12 @@ class ETL_lvr_land:
             print("", path)
             df = pd.concat([df, pd.read_csv(path, skiprows=[1])], ignore_index=True)
 
-        df.to_csv(merged_file_path, index=False)
+        df["原始資料"] = ""
+        df.to_csv("tmp.csv", index=False)
+        print("Saved: tmp.csv")
+        df = self.process_df(df, season, "tmp.csv")
+        df.to_csv("processed.csv", index=False)
+        print("Saved: processed.csv")
         exit()
 
         # # 1. 若無錯誤則直接寫入
@@ -129,7 +134,7 @@ class ETL_lvr_land:
         #     csv_dict_writer.writerow(processed_row_dict)
         #
         # else:
-        #     # 2.欄位數錯誤 
+        #     # 2.欄位數錯誤
         #     if error == "Invalid number of columns":
         #         print(
         #             "  Invalid number of columns on row:", row_idx + 3
@@ -244,69 +249,75 @@ class ETL_lvr_land:
 
     def process_df(self, df, season, raw_file_path):
         # 1. 檢查特殊字元
-        for value in row_dict.values():
-            if value is not None and any(
-                dirty_char in value for dirty_char in ['"', "'", "\\"]
-            ):
-                error = "Dirty char"
+        special_chars = ['"', "'", "\\"]
 
-        for field in fields:
-            # 2. 填入季度、縣市、類別
-            if field == "季度":
-                row_dict[field] = season.replace("S", "Q")
+        for idx, row in df.iterrows():
+            for col in df.columns:
+                if isinstance(row[col], str):
+                    for char in special_chars:
+                        if char in row[col]:
+                            df.at[idx, col] = row[col].replace(char, "")
+                            df.at[idx, "原始資料"] += f"{col}：{row[col]}。"
 
-            elif field == "縣市":
-                code = raw_file_path.split("/")[-1][0]
-                row_dict[field] = self.config["code_mappings"]["city"][code]
+        return df
 
-            elif field == "類別":
-                code = raw_file_path.split("_")[-2]
-                row_dict[field] = self.config["code_mappings"]["category"][code]
+        # for field in fields:
+        #     # 2. 填入季度、縣市、類別
+        #     if field == "季度":
+        #         row_dict[field] = season.replace("S", "Q")
 
-            # 3. 處理日期
-            elif field in [
-                "交易年月日",
-                "建築完成年月",
-                "建築完成日期",
-                "租賃年月日",
-            ]:
-                processed_date = self.process_date(row_dict[field])
+        #     elif field == "縣市":
+        #         code = raw_file_path.split("/")[-1][0]
+        #         row_dict[field] = self.config["code_mappings"]["city"][code]
 
-                if processed_date == "Invalid date":
-                    error = "Invalid date"
+        #     elif field == "類別":
+        #         code = raw_file_path.split("_")[-2]
+        #         row_dict[field] = self.config["code_mappings"]["category"][code]
 
-                else:
-                    row_dict[field] = processed_date
+        #     # 3. 處理日期
+        #     elif field in [
+        #         "交易年月日",
+        #         "建築完成年月",
+        #         "建築完成日期",
+        #         "租賃年月日",
+        #     ]:
+        #         processed_date = self.process_date(row_dict[field])
 
-            # 4. 分離租賃期間
-            elif field == "租賃期間-起" and "租賃期間" in row_dict:
-                row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[0])
+        #         if processed_date == "Invalid date":
+        #             error = "Invalid date"
 
-            elif field == "租賃期間-迄" and "租賃期間" in row_dict:
-                row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[-1])
-                del row_dict["租賃期間"]
+        #         else:
+        #             row_dict[field] = processed_date
 
-            # 5. 處理欄位名稱
-            elif (
-                field == "車位移轉總面積平方公尺"
-                and "車位移轉總面積(平方公尺)" in row_dict
-            ):
-                row_dict[field] = row_dict.pop("車位移轉總面積(平方公尺)")
+        #     # 4. 分離租賃期間
+        #     elif field == "租賃期間-起" and "租賃期間" in row_dict:
+        #         row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[0])
 
-            elif (
-                field == "土地移轉面積平方公尺" and "土地移轉面積(平方公尺)" in row_dict
-            ):
-                row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
+        #     elif field == "租賃期間-迄" and "租賃期間" in row_dict:
+        #         row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[-1])
+        #         del row_dict["租賃期間"]
 
-            # 6. 若欄位不存在，填入空字串
-            elif field not in row_dict:
-                row_dict[field] = ""
+        #     # 5. 處理欄位名稱
+        #     elif (
+        #         field == "車位移轉總面積平方公尺"
+        #         and "車位移轉總面積(平方公尺)" in row_dict
+        #     ):
+        #         row_dict[field] = row_dict.pop("車位移轉總面積(平方公尺)")
 
-        # 7. 檢查欄位數 (若值有","，會被視為欄位分離符號)
-        if len(row_dict) != len(fields):
-            error = "Invalid number of columns"
+        #     elif (
+        #         field == "土地移轉面積平方公尺" and "土地移轉面積(平方公尺)" in row_dict
+        #     ):
+        #         row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
 
-        return row_dict, error
+        #     # 6. 若欄位不存在，填入空字串
+        #     elif field not in row_dict:
+        #         row_dict[field] = ""
+
+        # # 7. 檢查欄位數 (若值有","，會被視為欄位分離符號)
+        # if len(row_dict) != len(fields):
+        #     error = "Invalid number of columns"
+
+        # return row_dict, error
 
     def process_invalid_date(self):
         paths = glob.glob(
@@ -343,30 +354,6 @@ class ETL_lvr_land:
                 writer = csv.DictWriter(f, fieldnames=fields)
                 writer.writeheader()
                 writer.writerows(row_dicts)
-
-            print("Processed", path)
-
-    def process_dirty_char(self):
-        paths = glob.glob(
-            f"{self.config['processed_data_dir_path']}/*/dirty_char_*.csv"
-        )
-
-        for path in paths:
-            schema = path.replace(".csv", "").split("_")[-1]
-            fields = self.config["schemas"][schema]["fields"]
-
-            rows = []
-            with open(path, "r") as f:
-                reader = csv.reader(f)
-                for row in reader:
-                    row = [cell[:-1] if cell.endswith("\\") else cell for cell in row]
-                    rows.append(row)
-
-            with open(
-                "/".join(path.split("/")[:-1]) + f"/rm_dirty_char_{schema}.csv", "w"
-            ) as f:
-                writer = csv.writer(f)
-                writer.writerows(rows)
 
             print("Processed", path)
 
