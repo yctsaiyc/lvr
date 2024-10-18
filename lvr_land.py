@@ -124,12 +124,11 @@ class ETL_lvr_land:
             )
 
         df["原始資料"] = ""
-        df.to_csv("tmp.csv", index=False)
-        print("Saved: tmp.csv")
-        df = self.process_df(df, season, "tmp.csv")
-        df.to_csv("processed.csv", index=False)
-        print("Saved: processed.csv")
-        exit()
+        df.to_csv(f"tmp_{schema}.csv", index=False)
+        print(f"Saved: tmp_{schema}.csv")
+        df = self.process_df(df, season, f"tmp_{schema}.csv")
+        df.to_csv(f"processed_{schema}.csv", index=False)
+        print(f"Saved: processed_{schema}.csv")
 
         # # 1. 若無錯誤則直接寫入
         # if error is None:
@@ -221,7 +220,14 @@ class ETL_lvr_land:
                 self.merge_csv(schema, season)
 
     def process_date(self, df):
-        date_cols = ["交易年月日", "建築完成年月", "建築完成日期", "租賃年月日"]
+        date_cols = [
+            "交易年月日",
+            "建築完成年月",
+            "建築完成日期",
+            "租賃年月日",
+            "租賃期間-起",
+            "租賃期間-迄",
+        ]
 
         for idx, row in df.iterrows():
             for date_col in date_cols:
@@ -275,9 +281,9 @@ class ETL_lvr_land:
         code = raw_file_path.split("/")[-1][0]
         df["縣市"] = self.config["code_mappings"]["city"][code]
 
-        if "類別" in df.columns:
-            code = raw_file_path.split("_")[-2]
-            df["類別"] = self.config["code_mappings"]["category"][code]
+        # if "類別" in df.columns:
+        #     code = raw_file_path.split("_")[-2]
+        #     df["類別"] = self.config["code_mappings"]["category"][code]
 
         return df
 
@@ -297,20 +303,18 @@ class ETL_lvr_land:
         # 2. 填入季度、縣市、類別
         df = self.fill_info(df, season, raw_file_path)
 
-        # 3. 處理日期
+        # 3. 分離租賃期間
+        if "租賃期間" in df.columns:
+            df["租賃期間-起"] = df["租賃期間"].str.split("~").str[0]
+            df["租賃期間-迄"] = df["租賃期間"].str.split("~").str[-1]
+            df = df.drop(columns=["租賃期間"])
+
+        # 4. 處理日期
         df = self.process_date(df)
 
-        # 4. 平方公尺轉坪
+        # 5. 平方公尺轉坪
         df = self.m2_to_ping(df)
         return df
-
-        #     # 5. 分離租賃期間
-        #     elif field == "租賃期間-起" and "租賃期間" in row_dict:
-        #         row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[0])
-
-        #     elif field == "租賃期間-迄" and "租賃期間" in row_dict:
-        #         row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[-1])
-        #         del row_dict["租賃期間"]
 
         #     # 6. 處理欄位名稱
         #     elif (
@@ -340,7 +344,7 @@ class ETL_lvr_land:
             # self.save_season_raw_data()
 
             # 2. 將不同縣市資料依schema合併
-            self.merge_csv_all_schemas()
+            self.merge_csv_all_schemas(season="113S3")
 
             # self.process_invalid_date()
             # self.process_dirty_char()
