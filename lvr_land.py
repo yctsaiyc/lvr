@@ -119,7 +119,9 @@ class ETL_lvr_land:
         # Create the merge file
         for path in raw_file_paths:
             print("", path)
-            df = pd.concat([df, pd.read_csv(path, skiprows=[1])], ignore_index=True)
+            df = pd.concat(
+                [df, pd.read_csv(path, skiprows=[1], dtype=str)], ignore_index=True
+            )
 
         df["原始資料"] = ""
         df.to_csv("tmp.csv", index=False)
@@ -218,34 +220,41 @@ class ETL_lvr_land:
             for schema in self.config["schemas"]:
                 self.merge_csv(schema, season)
 
-    def process_date(self, date_str):
-        if date_str is None:
-            return None
+    def process_date(self, df):
+        date_cols = ["交易年月日", "建築完成年月", "建築完成日期", "租賃年月日"]
 
-        elif date_str == "":
-            return ""
+        for idx, row in df.iterrows():
+            for date_col in date_cols:
+                if date_col in df.columns:
+                    date_str = row[date_col]
 
-        match = re.findall(r"(\d+)年(\d+)月(\d+)日", date_str)
+                    if pd.isna(date_str) or date_str == "":
+                        continue
 
-        # Pattern: 990101 or 1000101
-        if date_str.isdigit() and len(date_str) in [6, 7]:
-            day = date_str[-2:]
-            month = date_str[-4:-2]
-            year = int(date_str[:-4])
-            date_str = f"{int(year)+1911}-{month}-{day}"
+                    match = re.findall(r"(\d+)年(\d+)月(\d+)日", date_str)
 
-        # Pattern: 99年1月1日 or 100年1月1日
-        elif match:
-            year, month, day = match[0]
-            date_str = f"{int(year)+1911}-{month}-{day}"
+                    # Pattern: 990101 or 1000101
+                    if date_str.isdigit() and len(date_str) in [6, 7]:
+                        day = date_str[-2:]
+                        month = date_str[-4:-2]
+                        year = int(date_str[:-4])
+                        df.at[idx, date_col] = f"{int(year)+1911}-{month}-{day}"
 
-        try:
-            # Try to create a datetime object from the string
-            datetime.strptime(date_str, "%Y-%m-%d")
-            return date_str
-        except ValueError:
-            # If a ValueError is raised, the date is invalid
-            return "Invalid date"
+                    # Pattern: 99年1月1日 or 100年1月1日
+                    elif match:
+                        year, month, day = match[0]
+                        df.at[idx, date_col] = f"{int(year)+1911}-{month}-{day}"
+
+                    try:
+                        # Try to create a datetime object from the string
+                        datetime.strptime(df.at[idx, date_col], "%Y-%m-%d")
+
+                    except ValueError:
+                        # If a ValueError is raised, the date is invalid
+                        df.at[idx, date_col] = ""
+                        df.at[idx, "原始資料"] += f"{date_col}：{date_str}。"
+
+        return df
 
     def process_special_chars(self, df):
         special_chars = ['"', "'", "\\"]
@@ -279,23 +288,9 @@ class ETL_lvr_land:
         # 2. 填入季度、縣市、類別
         df = self.fill_info(df, season, raw_file_path)
 
+        # 3. 處理日期
+        df = self.process_date(df)
         return df
-
-        # for field in fields:
-        #     # 3. 處理日期
-        #     elif field in [
-        #         "交易年月日",
-        #         "建築完成年月",
-        #         "建築完成日期",
-        #         "租賃年月日",
-        #     ]:
-        #         processed_date = self.process_date(row_dict[field])
-
-        #         if processed_date == "Invalid date":
-        #             error = "Invalid date"
-
-        #         else:
-        #             row_dict[field] = processed_date
 
         #     # 4. 分離租賃期間
         #     elif field == "租賃期間-起" and "租賃期間" in row_dict:
@@ -326,44 +321,6 @@ class ETL_lvr_land:
         #     error = "Invalid number of columns"
 
         # return row_dict, error
-
-    def process_invalid_date(self):
-        paths = glob.glob(
-            f"{self.config['processed_data_dir_path']}/*/invalid_date_*.csv"
-        )
-
-        for path in paths:
-            schema = path.replace(".csv", "").split("_")[-1]
-            fields = self.config["schemas"][schema]["fields"]
-
-            row_dicts = []
-            with open(path, "r") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    for field in fields:
-                        if field in [
-                            "交易年月日",
-                            "建築完成年月",
-                            "建築完成日期",
-                            "租賃年月日",
-                            "租賃期間-起",
-                            "租賃期間-迄",
-                        ]:
-                            try:
-                                datetime.strptime(row[field], "%Y-%m-%d")
-                            except ValueError:
-                                row[field] = ""
-
-                    row_dicts.append(row)
-
-            with open(
-                "/".join(path.split("/")[:-1]) + f"/rm_invalid_date_{schema}.csv", "w"
-            ) as f:
-                writer = csv.DictWriter(f, fieldnames=fields)
-                writer.writeheader()
-                writer.writerows(row_dicts)
-
-            print("Processed", path)
 
     def process_main(self, dir_path):
         paths = glob.glob(f"{dir_path}/*.csv")
