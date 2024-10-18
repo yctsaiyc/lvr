@@ -276,27 +276,18 @@ class ETL_lvr_land:
         df = self.m2_to_ping(df)
         return df
 
-        #     # 6. 處理欄位名稱
-        #     elif (
-        #         field == "車位移轉總面積平方公尺"
-        #         and "車位移轉總面積(平方公尺)" in row_dict
-        #     ):
-        #         row_dict[field] = row_dict.pop("車位移轉總面積(平方公尺)")
+        # 6. 處理欄位名稱
+        if "車位移轉總面積平方公尺" in df.columns:
+            df.rename(
+                columns={"車位移轉總面積平方公尺": "車位移轉總面積(平方公尺)"},
+                inplace=True,
+            )
 
-        #     elif (
-        #         field == "土地移轉面積平方公尺" and "土地移轉面積(平方公尺)" in row_dict
-        #     ):
-        #         row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
-
-        #     # 7. 若欄位不存在，填入空字串
-        #     elif field not in row_dict:
-        #         row_dict[field] = ""
-
-        # # 8. 檢查欄位數 (若值有","，會被視為欄位分離符號)
-        # if len(row_dict) != len(fields):
-        #     error = "Invalid number of columns"
-
-        # return row_dict, error
+        if "土地移轉面積平方公尺" in df.columns:
+            df.rename(
+                columns={"土地移轉面積平方公尺": "土地移轉面積(平方公尺)"},
+                inplace=True,
+            )
 
     def crawling(self):
         try:
