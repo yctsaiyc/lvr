@@ -163,6 +163,45 @@ class ETL_lvr_land:
 
     # 處理日期格式
     def process_date(self, df):
+        # 轉成yyyy-mm-dd
+        def convert_date(date_str):
+            # 空值直接回傳
+            if pd.isna(date_str) or date_str == "":
+                return ""
+
+            match = re.findall(r"(\d+)年(\d+)月(\d+)日", date_str)
+
+            # Pattern: 990101 or 1000101
+            if date_str.isdigit() and len(date_str) in [6, 7]:
+                day = date_str[-2:]
+                month = date_str[-4:-2]
+                year = int(date_str[:-4])
+                return f"{int(year)+1911}-{month}-{day}"
+
+            # Pattern: 99年1月1日 or 100年1月1日
+            elif match:
+                year, month, day = match[0]
+                return f"{int(year)+1911}-{month}-{day}"
+
+            # 非空值且不符pattern者直接回傳
+            return date_str
+
+        def validate_date(row, date_col):
+            date_str = row[date_col]
+
+            try:
+                # 確認真的有這一天（反例：2022-02-29、2023-09-31、2024-10-00）
+                if date_str:
+                    datetime.strptime(date_str, "%Y-%m-%d")
+                    return date_str
+
+            except ValueError:
+                # 若沒有這一天，則取代為空值，並記錄原始資料
+                original_data = row.get("原始資料", "")
+                updated_data = f"{original_data}{date_col}：{date_str}。"
+                df.at[row.name, "原始資料"] = updated_data
+                return ""
+
         date_cols = [
             "交易年月日",
             "建築完成年月",
@@ -172,37 +211,12 @@ class ETL_lvr_land:
             "租賃期間-迄",
         ]
 
-        for idx, row in df.iterrows():
-            for date_col in date_cols:
-                if date_col in df.columns:
-                    date_str = row[date_col]
+        for date_col in date_cols:
+            if date_col not in df.columns:
+                continue
 
-                    # 空值
-                    if pd.isna(date_str) or date_str == "":
-                        continue
-
-                    match = re.findall(r"(\d+)年(\d+)月(\d+)日", date_str)
-
-                    # Pattern: 990101 or 1000101
-                    if date_str.isdigit() and len(date_str) in [6, 7]:
-                        day = date_str[-2:]
-                        month = date_str[-4:-2]
-                        year = int(date_str[:-4])
-                        df.at[idx, date_col] = f"{int(year)+1911}-{month}-{day}"
-
-                    # Pattern: 99年1月1日 or 100年1月1日
-                    elif match:
-                        year, month, day = match[0]
-                        df.at[idx, date_col] = f"{int(year)+1911}-{month}-{day}"
-
-                    try:
-                        # 確認真的有這一天（反例：2022-02-29、2023-09-31、2024-10-00）
-                        datetime.strptime(df.at[idx, date_col], "%Y-%m-%d")
-
-                    except ValueError:
-                        # 若沒有這一天，則取代為空值，並記錄原始資料
-                        df.at[idx, date_col] = ""
-                        df.at[idx, "原始資料"] += f"{date_col}：{date_str}。"
+            df[date_col] = df[date_col].apply(convert_date)
+            df[date_col] = df.apply(lambda row: validate_date(row, date_col), axis=1)
 
         return df
 
