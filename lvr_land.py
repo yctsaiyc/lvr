@@ -37,6 +37,7 @@ class ETL_lvr_land:
         else:  # today.month in [10, 11, 12]
             return f"{today.year - 1911}S3"
 
+    # 下載單一季度原始資料
     def save_season_raw_data(self, season=None):
         if season is None:
             season = self.newest_season
@@ -72,6 +73,7 @@ class ETL_lvr_land:
         else:
             print("Failed to download the file. Status code:", response.status_code)
 
+    # 下載所有季度原始資料
     def save_history_season_raw_data(self, start="101S1", end=None):
         if end is None:
             end = self.newest_season
@@ -91,59 +93,75 @@ class ETL_lvr_land:
                 print(f"{year}S{season}")
                 self.save_season_raw_data(f"{year}S{season}")
 
+    # 依schema合併資料
     def merge_csv(self, schema="main", season=None):
         if season is None:
             season = self.newest_season
 
+        # 該季度原始資料位置
         raw_data_dir_path = os.path.join(
             self.raw_data_dir_path, f"lvr_landcsv_{season}"
         )
+
+        # 合併後資料位置
         merged_dir_path = os.path.join(self.processed_data_dir_path, schema)
         os.makedirs(merged_dir_path, exist_ok=True)
+
+        # schema資訊（檔名pattern、欄位）
         schema_dict = self.config["schemas"][schema]
 
+        # 符合pattern的檔案路徑
         raw_file_paths = []
         for schema_file in schema_dict["files"]:
             raw_file_paths += glob.glob(
                 os.path.join(raw_data_dir_path, schema_file["pattern"])
             )
 
-        season = raw_data_dir_path[-5:]  # yyySs
+        # 合併後資料檔名、路徑
         merged_file_path = os.path.join(
             merged_dir_path, f"{self.prefix}_{season}_{schema}.csv"
         )
         print(f"Merge {merged_file_path}...")
 
+        # 依config定義的schema建立DataFrame
         df = pd.DataFrame(columns=schema_dict["fields"])
 
-        # Create the merge file
+        # 所有符合pattern的檔案
         for path in raw_file_paths:
             print("", path)
-            df = pd.concat(
-                [df, pd.read_csv(path, skiprows=[1], dtype=str)], ignore_index=True
-            )
 
+            # 讀檔案，跳過第二行（英文header）
+            df2 = pd.read_csv(path, skiprows=[1], dtype=str)
+
+            # 合併
+            df = pd.concat([df, df2], ignore_index=True)
+
+        # 新增欄位存被處理過資料的原始值
         df["原始資料"] = ""
-        df.to_csv(f"tmp_{schema}.csv", index=False)
-        print(f"Saved: tmp_{schema}.csv")
+
+        # 處理資料
         df = self.process_df(df, season, f"tmp_{schema}.csv")
-        df.to_csv(f"processed_{schema}.csv", index=False)
-        print(f"Saved: processed_{schema}.csv")
 
-        print("Merge done!\n")
+        # 存檔
+        df.to_csv(merged_file_path, index=False)
+        print("Saved:", merged_file_path)
 
+    # 依schema合併資料（一次處理所有schema）
     def merge_csv_all_schemas(self, season="???S?"):
         raw_dir_paths = glob.glob(
             os.path.join(self.raw_data_dir_path, f"lvr_landcsv_{season}")
         )
 
+        # 季度
         for raw_dir_path in raw_dir_paths:
             season = raw_dir_path[-5:]
             print(f"Season: {season}\n")
 
+            # schema
             for schema in self.config["schemas"]:
                 self.merge_csv(schema, season)
 
+    # 處理日期格式
     def process_date(self, df):
         date_cols = [
             "交易年月日",
@@ -159,6 +177,7 @@ class ETL_lvr_land:
                 if date_col in df.columns:
                     date_str = row[date_col]
 
+                    # 空值
                     if pd.isna(date_str) or date_str == "":
                         continue
 
@@ -177,16 +196,17 @@ class ETL_lvr_land:
                         df.at[idx, date_col] = f"{int(year)+1911}-{month}-{day}"
 
                     try:
-                        # Try to create a datetime object from the string
+                        # 確認真的有這一天（反例：2022-02-29、2023-09-31、2024-10-00）
                         datetime.strptime(df.at[idx, date_col], "%Y-%m-%d")
 
                     except ValueError:
-                        # If a ValueError is raised, the date is invalid
+                        # 若沒有這一天，則取代為空值，並記錄原始資料
                         df.at[idx, date_col] = ""
                         df.at[idx, "原始資料"] += f"{date_col}：{date_str}。"
 
         return df
 
+    # 處理特殊字元
     def process_special_chars(self, df):
         special_chars = ['"', "'", "\\"]
 
@@ -200,15 +220,16 @@ class ETL_lvr_land:
 
         return df
 
+    # 填入季度、縣市、類別
     def fill_info(self, df, season, raw_file_path):
         df["季度"] = season.replace("S", "Q")
 
         code = raw_file_path.split("/")[-1][0]
         df["縣市"] = self.config["code_mappings"]["city"][code]
 
-        # if "類別" in df.columns:
-        #     code = raw_file_path.split("_")[-2]
-        #     df["類別"] = self.config["code_mappings"]["category"][code]
+        if "類別" in df.columns:
+            code = raw_file_path.split("_")[-2]
+            df["類別"] = self.config["code_mappings"]["category"][code]
 
         return df
 
@@ -265,7 +286,10 @@ class ETL_lvr_land:
 
     def crawling(self):
         try:
-            # 1. 存原始資料csv
+            # # 0. 存歷史資料
+            # self.save_history_season_raw_data()
+
+            # # 1. 存原始資料csv
             # self.save_season_raw_data()
 
             # 2. 將不同縣市資料依schema合併
