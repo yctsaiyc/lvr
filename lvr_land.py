@@ -281,6 +281,15 @@ class ETL_lvr_land:
 
         return df
 
+    # 平方公尺轉坪，取到小數第二位
+    def m2_to_ping(self, df):
+        for col in df.columns:
+            if "平方公尺" in col:
+                df[col] = (df[col].astype(float) * 0.3025).round(2)
+                df.rename(columns={col: col.replace("平方公尺", "坪")}, inplace=True)
+
+        return df
+
     def process_df(self, df, season, raw_file_path):
         # 1. 檢查特殊字元
         df = self.process_special_chars(df)
@@ -290,9 +299,12 @@ class ETL_lvr_land:
 
         # 3. 處理日期
         df = self.process_date(df)
+
+        # 4. 平方公尺轉坪
+        df = self.m2_to_ping(df)
         return df
 
-        #     # 4. 分離租賃期間
+        #     # 5. 分離租賃期間
         #     elif field == "租賃期間-起" and "租賃期間" in row_dict:
         #         row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[0])
 
@@ -300,7 +312,7 @@ class ETL_lvr_land:
         #         row_dict[field] = self.process_date(row_dict["租賃期間"].split("~")[-1])
         #         del row_dict["租賃期間"]
 
-        #     # 5. 處理欄位名稱
+        #     # 6. 處理欄位名稱
         #     elif (
         #         field == "車位移轉總面積平方公尺"
         #         and "車位移轉總面積(平方公尺)" in row_dict
@@ -312,36 +324,15 @@ class ETL_lvr_land:
         #     ):
         #         row_dict[field] = row_dict.pop("土地移轉面積(平方公尺)")
 
-        #     # 6. 若欄位不存在，填入空字串
+        #     # 7. 若欄位不存在，填入空字串
         #     elif field not in row_dict:
         #         row_dict[field] = ""
 
-        # # 7. 檢查欄位數 (若值有","，會被視為欄位分離符號)
+        # # 8. 檢查欄位數 (若值有","，會被視為欄位分離符號)
         # if len(row_dict) != len(fields):
         #     error = "Invalid number of columns"
 
         # return row_dict, error
-
-    def process_main(self, dir_path):
-        paths = glob.glob(f"{dir_path}/*.csv")
-
-        for path in paths:
-            df = pd.read_csv(path)
-
-            df["土地移轉總面積坪"] = df["土地移轉總面積平方公尺"] * 0.3025
-            df["建物移轉總面積坪"] = df["建物移轉總面積平方公尺"] * 0.3025
-            df["車位移轉總面積坪"] = df["車位移轉總面積平方公尺"] * 0.3025
-            df["單價元坪"] = df["單價元平方公尺"] * 0.3025
-
-            df = df.drop(
-                columns=[
-                    "土地移轉總面積平方公尺",
-                    "建物移轉總面積平方公尺",
-                    "車位移轉總面積平方公尺",
-                    "單價元平方公尺",
-                ]
-            )
-            df.to_csv(path, index=False)
 
     def crawling(self):
         try:
