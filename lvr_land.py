@@ -130,81 +130,6 @@ class ETL_lvr_land:
         df.to_csv(f"processed_{schema}.csv", index=False)
         print(f"Saved: processed_{schema}.csv")
 
-        # # 1. 若無錯誤則直接寫入
-        # if error is None:
-        #     csv_dict_writer.writerow(processed_row_dict)
-        #
-        # else:
-        #     # 2.欄位數錯誤
-        #     if error == "Invalid number of columns":
-        #         print(
-        #             "  Invalid number of columns on row:", row_idx + 3
-        #         )
-        #
-        #         invalid_row_path = (
-        #             f"{merged_dir_path}/invalid_num_cols_{schema}.csv"
-        #         )
-        #
-        #         # Write the row to file
-        #         with open(invalid_row_path, "a", newline="") as file:
-        #             csv_writer = csv.writer(file)
-        #
-        #             # Write the header if the file is new
-        #             if file.tell() == 0:
-        #                 csv_writer.writerow(schema_dict["fields"])
-        #
-        #             row = []
-        #             for field in schema_dict["fields"]:
-        #                 if field in ["季度", "縣市", "類別"]:
-        #                     row.append(row_dict[field])
-        #
-        #                 else:
-        #                     row += (
-        #                         current_file[row_idx + 2]
-        #                         .replace("\r\n", "")
-        #                         .split(",")
-        #                     )
-        #                     csv_writer.writerow(row)
-        #                     break
-        #
-        #     # 3. 日期錯誤
-        #     elif error == "Invalid date":
-        #         print("  Invalid date on row:", row_idx + 3)
-        #
-        #         invalid_row_path = (
-        #             f"{merged_dir_path}/invalid_date_{schema}.csv"
-        #         )
-        #
-        #         with open(invalid_row_path, "a", newline="") as file:
-        #             csv_writer = csv.DictWriter(
-        #                 file, fieldnames=schema_dict["fields"]
-        #             )
-        #
-        #             if file.tell() == 0:
-        #                 csv_writer.writeheader()
-        #
-        #             csv_writer.writerow(processed_row_dict)
-        #
-        #     # 4. 特殊字元
-        #     elif error == "Dirty char":
-        #         print("  Dirty char on row:", row_idx + 3)
-        #
-        #         invalid_row_path = (
-        #             f"{merged_dir_path}/dirty_char_{schema}.csv"
-        #         )
-        #
-        #         with open(invalid_row_path, "a", newline="") as file:
-        #             csv_writer = csv.DictWriter(
-        #                 file, fieldnames=schema_dict["fields"]
-        #             )
-        #
-        #             if file.tell() == 0:
-        #                 csv_writer.writeheader()
-        #
-        #             csv_writer.writerow(processed_row_dict)
-        #
-        #     print(f"   Saved in {invalid_row_path}")
-
         print("Merge done!\n")
 
     def merge_csv_all_schemas(self, season="???S?"):
@@ -345,24 +270,6 @@ class ETL_lvr_land:
 
             # 2. 將不同縣市資料依schema合併
             self.merge_csv_all_schemas(season="113S3")
-
-            # self.process_invalid_date()
-            # self.process_dirty_char()
-            # for file_to_remove in glob.glob(
-            #     f"{self.config['processed_data_dir_path']}/*/invalid_date_*.csv"
-            # ):
-            #     os.remove(file_to_remove)
-            #     print("Removed", file_to_remove)
-            # for file_to_remove in glob.glob(
-            #     f"{self.config['processed_data_dir_path']}/*/dirty_char_*.csv"
-            # ):
-            #     os.remove(file_to_remove)
-            #     print("Removed", file_to_remove)
-            # shutil.rmtree(self.config["raw_data_dir_path"])
-
-            # self.process_main(
-            #     os.path.join(self.config["processed_data_dir_path"], "main")
-            # )
 
         except Exception as e:
             raise  ### AirflowFailException(e)
