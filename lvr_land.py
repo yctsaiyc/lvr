@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
 import requests
 import zipfile
 import os
@@ -121,7 +121,7 @@ class ETL_lvr_land:
         merged_file_path = os.path.join(
             merged_dir_path, f"{self.prefix}_{season}_{schema}.csv"
         )
-        print(f"Merge {merged_file_path}...")
+        print(f"\nMerging {merged_file_path}...")
 
         # 依config定義的schema建立DataFrame
         df = pd.DataFrame(columns=schema_dict["fields"])
@@ -133,6 +133,9 @@ class ETL_lvr_land:
             # 讀檔案，跳過第二行（英文header）
             df2 = pd.read_csv(path, skiprows=[1], dtype=str)
 
+            # 填入類別
+            df2 = self.fill_info(df2, season, path)
+
             # 合併
             df = pd.concat([df, df2], ignore_index=True)
 
@@ -140,7 +143,7 @@ class ETL_lvr_land:
         df["原始資料"] = ""
 
         # 處理資料
-        df = self.process_df(df, season, f"tmp_{schema}.csv")
+        df = self.process_df(df)
 
         # 存檔
         df.to_csv(merged_file_path, index=False)
@@ -155,11 +158,15 @@ class ETL_lvr_land:
         # 季度
         for raw_dir_path in raw_dir_paths:
             season = raw_dir_path[-5:]
-            print(f"Season: {season}\n")
+            print(f"Season: {season}")
 
             # schema
             for schema in self.config["schemas"]:
                 self.merge_csv(schema, season)
+
+            # 刪除原始資料
+            ### shutil.rmtree(raw_dir_path)
+            ### print("Deleted:", raw_dir_path)
 
     # 處理日期格式
     def process_date(self, df):
@@ -187,20 +194,20 @@ class ETL_lvr_land:
             return date_str
 
         def validate_date(row, date_col):
-            date_str = row[date_col]
-
             try:
                 # 確認真的有這一天（反例：2022-02-29、2023-09-31、2024-10-00）
-                if date_str:
-                    datetime.strptime(date_str, "%Y-%m-%d")
-                    return date_str
+                if row[date_col]:
+                    row[date_col] = datetime.strptime(row[date_col], "%Y-%m-%d").date()
 
             except ValueError:
                 # 若沒有這一天，則取代為空值，並記錄原始資料
                 original_data = row.get("原始資料", "")
-                updated_data = f"{original_data}{date_col}：{date_str}。"
-                df.at[row.name, "原始資料"] = updated_data
-                return ""
+                updated_data = f"{original_data}{date_col}：{row[date_col]}。"
+                row[date_col] = ""
+                row["原始資料"] = updated_data
+                return row
+
+            return row
 
         date_cols = [
             "交易年月日",
@@ -216,7 +223,7 @@ class ETL_lvr_land:
                 continue
 
             df[date_col] = df[date_col].apply(convert_date)
-            df[date_col] = df.apply(lambda row: validate_date(row, date_col), axis=1)
+            df = df.apply(lambda row: validate_date(row, date_col), axis=1)
 
         return df
 
@@ -239,11 +246,11 @@ class ETL_lvr_land:
         df["季度"] = season.replace("S", "Q")
 
         code = raw_file_path.split("/")[-1][0]
-        df["縣市"] = self.config["code_mappings"]["city"][code]
+        df["縣市"] = self.config["code"]["city"][code]
 
-        if "類別" in df.columns:
+        if len(raw_file_path.split("_")[-2]) == 1:
             code = raw_file_path.split("_")[-2]
-            df["類別"] = self.config["code_mappings"]["category"][code]
+            df["類別"] = self.config["code"]["category"][code]
 
         return df
 
@@ -251,32 +258,33 @@ class ETL_lvr_land:
     def m2_to_ping(self, df):
         for col in df.columns:
             if "平方公尺" in col:
+                df["原始資料"] = df.apply(
+                    lambda row: (
+                        f"{row['原始資料']}{col}：{row[col]}。"
+                        if not pd.isna(row[col])
+                        else row["原始資料"]
+                    ),
+                    axis=1,
+                )
                 df[col] = (df[col].astype(float) * 0.3025).round(2)
                 df.rename(columns={col: col.replace("平方公尺", "坪")}, inplace=True)
 
         return df
 
-    def process_df(self, df, season, raw_file_path):
+    def process_df(self, df):
         # 1. 檢查特殊字元
         df = self.process_special_chars(df)
 
-        # 2. 填入季度、縣市、類別
-        df = self.fill_info(df, season, raw_file_path)
-
-        # 3. 分離租賃期間
+        # 2. 分離租賃期間
         if "租賃期間" in df.columns:
             df["租賃期間-起"] = df["租賃期間"].str.split("~").str[0]
             df["租賃期間-迄"] = df["租賃期間"].str.split("~").str[-1]
             df = df.drop(columns=["租賃期間"])
 
-        # 4. 處理日期
+        # 3. 處理日期
         df = self.process_date(df)
 
-        # 5. 平方公尺轉坪
-        df = self.m2_to_ping(df)
-        return df
-
-        # 6. 處理欄位名稱
+        # 4. 處理欄位名稱
         if "車位移轉總面積平方公尺" in df.columns:
             df.rename(
                 columns={"車位移轉總面積平方公尺": "車位移轉總面積(平方公尺)"},
@@ -288,6 +296,16 @@ class ETL_lvr_land:
                 columns={"土地移轉面積平方公尺": "土地移轉面積(平方公尺)"},
                 inplace=True,
             )
+
+        # 5. 平方公尺轉坪
+        df = self.m2_to_ping(df)
+
+        # 6. 更新資料最後處理日期
+        df["資料最後處理日期"] = datetime.now(timezone(timedelta(hours=8))).strftime(
+            "%Y-%m-%d"
+        )
+
+        return df
 
     def crawling(self):
         try:
