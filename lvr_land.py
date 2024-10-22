@@ -172,14 +172,40 @@ class ETL_lvr_land:
             # 設定欄位數異常資料
             self.set_bad_line(path)
 
-            # 讀檔案，跳過第二行（英文header），儲存欄位數異常資料
-            df2 = pd.read_csv(
-                path,
-                skiprows=[1],
-                dtype=str,
-                on_bad_lines=self.add_bad_line,
-                engine="python",
-            )
+            if int(pd.__version__.split(".")[0]) >= 2:  # pandas 2.x 及以後的版本
+                # 讀檔案，跳過第二行（英文header），儲存欄位數異常資料
+                df2 = pd.read_csv(
+                    path,
+                    skiprows=[1],
+                    dtype=str,
+                    on_bad_lines=self.add_bad_line,
+                    engine="python",
+                )
+
+            else:  # pandas 版本 1.x
+                try:
+                    df2 = pd.read_csv(
+                        path,
+                        skiprows=[1],
+                        dtype=str,
+                        error_bad_lines=False,  # pandas 1.x 使用的參數，跳過壞行
+                        warn_bad_lines=True,  # 發出壞行警告
+                        engine="python",
+                    )
+
+                except Exception as e:
+                    raise e
+
+                # 手動記錄壞行
+                with open(path, "r", encoding="utf-8") as f:
+                    # 讀取 header 並計算逗號數
+                    header = f.readline()
+                    expected_comma_count = header.count(",")
+
+                    # 檢查每一行的逗號數是否與 header 一致
+                    for i, line in enumerate(f, start=2):  # 從第2行開始計算
+                        if line.count(",") != expected_comma_count:
+                            self.add_bad_line(line)  # 如果逗號數不符，記錄壞行
 
             # 若有bad line，儲存
             self.handle_bad_line(schema, df2.columns)
