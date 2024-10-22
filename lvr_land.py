@@ -20,6 +20,7 @@ class ETL_lvr_land:
         self.raw_data_dir_path = self.config["raw_data_dir_path"]
         self.processed_data_dir_path = self.config["processed_data_dir_path"]
         self.prefix = "lvr_land"
+        self.bad_line = []
 
     def get_config(self, config_path):
         with open(config_path) as file:
@@ -93,6 +94,44 @@ class ETL_lvr_land:
                 print(f"{year}S{season}")
                 self.save_season_raw_data(f"{year}S{season}")
 
+    # 設定欄位數異常資料
+    def set_bad_line(self, raw_file_path):
+        self.bad_line = []
+        # item[0]: 原始資料檔名
+        self.bad_line.append(raw_file_path)
+
+    # 記錄欄位數異常資料
+    def add_bad_line(self, bad_line):
+        self.bad_line.append(bad_line)
+
+    # 處理欄位數異常資料（暫時先不處理，可能需人工判斷）
+    def handle_bad_line(self, schema, header):
+        if len(self.bad_line) == 1:
+            self.bad_line = []
+            return
+
+        # item[1]: header
+        self.bad_line.insert(1, header)
+
+        # item從list轉str
+        self.bad_line = [
+            ",".join(item) if isinstance(item, (list, pd.Index)) else str(item)
+            for item in self.bad_line
+        ]
+
+        file_path = os.path.join(
+            self.processed_data_dir_path, schema, f"{schema}_bad_line.txt"
+        )
+
+        with open(file_path, "a") as f:
+            for item in self.bad_line:
+                print(item)
+                f.write(f"{item}\n")
+
+        print(f"Saved: {file_path}")
+
+        self.bad_line = []
+
     # 依schema合併資料
     def merge_csv(self, schema="main", season=None):
         if season is None:
@@ -130,8 +169,20 @@ class ETL_lvr_land:
         for path in raw_file_paths:
             print("", path)
 
-            # 讀檔案，跳過第二行（英文header）
-            df2 = pd.read_csv(path, skiprows=[1], dtype=str)
+            # 設定欄位數異常資料
+            self.set_bad_line(path)
+
+            # 讀檔案，跳過第二行（英文header），儲存欄位數異常資料
+            df2 = pd.read_csv(
+                path,
+                skiprows=[1],
+                dtype=str,
+                on_bad_lines=self.add_bad_line,
+                engine="python",
+            )
+
+            # 若有bad line，儲存
+            self.handle_bad_line(schema, df2.columns)
 
             # 填入類別
             df2 = self.fill_info(df2, season, path)
@@ -312,8 +363,8 @@ class ETL_lvr_land:
             # # 0. 存歷史資料
             # self.save_history_season_raw_data()
 
-            # # 1. 存原始資料csv
-            # self.save_season_raw_data()
+            # 1. 存原始資料csv
+            self.save_season_raw_data()
 
             # 2. 將不同縣市資料依schema合併
             self.merge_csv_all_schemas(season="113S3")
