@@ -198,7 +198,7 @@ class ETL_lvr_land:
 
         # 存檔
         batch_size = 50000
-        
+
         if len(df) > batch_size:
             df.iloc[:batch_size].to_csv(merged_file_path, index=False)
             print("Saved:", merged_file_path)
@@ -347,17 +347,13 @@ class ETL_lvr_land:
         df = self.process_date(df)
 
         # 4. 處理欄位名稱
-        if "車位移轉總面積平方公尺" in df.columns:
-            df.rename(
-                columns={"車位移轉總面積平方公尺": "車位移轉總面積(平方公尺)"},
-                inplace=True,
-            )
+        if "車位移轉總面積(平方公尺)" in df.columns:
+            df["車位移轉總面積平方公尺"] = df["車位移轉總面積(平方公尺)"]
+            df.drop(columns=["車位移轉總面積(平方公尺)"], inplace=True)
 
-        if "土地移轉面積平方公尺" in df.columns:
-            df.rename(
-                columns={"土地移轉面積平方公尺": "土地移轉面積(平方公尺)"},
-                inplace=True,
-            )
+        if "土地移轉面積(平方公尺)" in df.columns:
+            df["土地移轉面積平方公尺"] = df["土地移轉面積(平方公尺)"]
+            df.drop(columns=["土地移轉面積(平方公尺)"], inplace=True)
 
         # 5. 平方公尺轉坪
         df = self.m2_to_ping(df)
