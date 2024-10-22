@@ -197,8 +197,19 @@ class ETL_lvr_land:
         df = self.process_df(df)
 
         # 存檔
-        df.to_csv(merged_file_path, index=False)
-        print("Saved:", merged_file_path)
+        batch_size = 50000
+        
+        if len(df) > batch_size:
+            df.iloc[:batch_size].to_csv(merged_file_path, index=False)
+            print("Saved:", merged_file_path)
+
+            new_file_path = merged_file_path.replace(".csv", "_2.csv")
+            df.iloc[batch_size:].to_csv(new_file_path, index=False)
+            print("Saved:", new_file_path)
+
+        else:
+            df.to_csv(merged_file_path, index=False)
+            print("Saved:", merged_file_path)
 
     # 依schema合併資料（一次處理所有schema）
     def merge_csv_all_schemas(self, season="???S?"):
@@ -367,7 +378,7 @@ class ETL_lvr_land:
             self.save_season_raw_data()
 
             # 2. 將不同縣市資料依schema合併
-            self.merge_csv_all_schemas(season="113S3")
+            self.merge_csv_all_schemas()
 
         except Exception as e:
             raise  ### AirflowFailException(e)
