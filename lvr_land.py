@@ -354,7 +354,10 @@ class ETL_lvr_land:
                     ),
                     axis=1,
                 )
-                df[col] = (df[col].astype(float) * 0.3025).round(2)
+
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype(float) * 0.3025
+                df[col] = df[col].round(2)
+                df[col] = df[col].fillna("")
                 df.rename(columns={col: col.replace("平方公尺", "坪")}, inplace=True)
 
         return df
