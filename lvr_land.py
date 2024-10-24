@@ -156,6 +156,10 @@ class ETL_lvr_land:
                 os.path.join(raw_data_dir_path, schema_file["pattern"])
             )
 
+        if len(raw_file_paths) == 0:
+            print(f"\nNo files match {schema}")
+            return
+
         # 合併後資料檔名、路徑
         merged_file_path = os.path.join(
             merged_dir_path, f"{self.prefix}_{season}_{schema}.csv"
@@ -225,17 +229,20 @@ class ETL_lvr_land:
         # 存檔
         batch_size = 50000
 
-        if len(df) > batch_size:
-            df.iloc[:batch_size].to_csv(merged_file_path, index=False)
-            print("Saved:", merged_file_path)
+        file_count = 1
 
-            new_file_path = merged_file_path.replace(".csv", "_2.csv")
-            df.iloc[batch_size:].to_csv(new_file_path, index=False)
-            print("Saved:", new_file_path)
+        while len(df) > batch_size:
+            new_file_path = merged_file_path.replace(".csv", f"_{file_count}.csv")
+            df.iloc[:batch_size].to_csv(new_file_path, index=False)
+            print(f"Saved: {new_file_path}")
 
-        else:
-            df.to_csv(merged_file_path, index=False)
-            print("Saved:", merged_file_path)
+            df = df.iloc[batch_size:]
+            file_count += 1
+
+        # 儲存最後剩下的資料
+        new_file_path = merged_file_path.replace(".csv", f"_{file_count}.csv")
+        df.to_csv(new_file_path, index=False)
+        print(f"Saved: {new_file_path}")
 
     # 依schema合併資料（一次處理所有schema）
     def merge_csv_all_schemas(self, season="???S?"):
